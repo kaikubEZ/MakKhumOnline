@@ -1,5 +1,18 @@
 export type GameState = number[];
 
+export enum GamePhase {
+  RACING = 'RACING',
+  TURN_BASED = 'TURN_BASED'
+}
+
+export interface PlayerHand {
+  isActive: boolean;
+  hasDiedOnce: boolean;
+  seeds: number;
+  currentPit: number | null;
+  needsDecision: boolean; // True if they need to select a starting pit or pit after hitting store
+}
+
 export interface AnimationState {
   board: GameState;
   seedsInHand: number;
@@ -7,8 +20,8 @@ export interface AnimationState {
 }
 
 export interface MoveHistoryEntry {
-  player: number; // 0 for human, 1 for AI
-  pitIndex: number;
+  player: number | 'system'; 
+  pitIndex: number | null;
   scoreGained: number;
   captured: boolean;
   freeTurn: boolean;
@@ -16,7 +29,7 @@ export interface MoveHistoryEntry {
 }
 
 export interface MoveResult {
-  nextTurn: number; // 0 for human, 1 for AI
-  states: AnimationState[]; // Array of intermediate board states for animation
-  messages: string[]; // Track what happened during the turn
+  nextTurn: number; 
+  states: AnimationState[]; 
+  messages: string[]; 
 }

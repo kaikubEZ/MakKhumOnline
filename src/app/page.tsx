@@ -5,11 +5,11 @@ import { useGame } from '@/hooks/useGame';
 import { Board } from '@/components/Board';
 import { AICompanion } from '@/components/AICompanion';
 import { SettingsModal } from '@/components/SettingsModal';
-
+import { GamePhase } from '@/lib/game/types';
 import { MoveHistory } from '@/components/MoveHistory';
 
 export default function Home() {
-  const { board, currentPlayer, isGameOver, winner, playMove, game, resetGame, lastMessages, isAnimating, seedsInHand, activePit, history } = useGame();
+  const { board, phase, hands, currentPlayer, isGameOver, winner, playMove, game, resetGame, lastMessages, isAnimating, seedsInHand, activePit, history } = useGame();
   
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [isAiThinking, setIsAiThinking] = useState(false);
@@ -65,7 +65,12 @@ export default function Home() {
   // Handle AI turn
   useEffect(() => {
     const handleAITurn = async () => {
-      if (currentPlayer !== 1 || isGameOver || aiActionInProgress.current) return;
+      if (isGameOver || aiActionInProgress.current) return;
+      
+      const isTurnBasedAI = phase === GamePhase.TURN_BASED && currentPlayer === 1;
+      const isRacingAI = phase === GamePhase.RACING && hands[1].needsDecision && !hands[1].hasDiedOnce;
+
+      if (!isTurnBasedAI && !isRacingAI) return;
       
       aiActionInProgress.current = true;
       setIsAiThinking(true);
@@ -76,16 +81,25 @@ export default function Home() {
       const aiMoveStr = await callAI('move');
       setIsAiThinking(false);
       
+      let finalMove: number;
+      const validMoves = game.getValidMoves(1);
+
       if (aiMoveStr) {
         const moveIndex = parseInt(aiMoveStr, 10);
         // Fallback validation just in case AI hallucinates
-        const validMoves = game.getValidMoves(1);
-        const finalMove = validMoves.includes(moveIndex) ? moveIndex : validMoves[0];
+        finalMove = validMoves.includes(moveIndex) ? moveIndex : validMoves[0];
+      } else {
+        // Fallback if AI API fails (e.g. rate limits)
+        console.warn("AI API failed or returned empty. Falling back to random move.");
+        finalMove = validMoves[Math.floor(Math.random() * validMoves.length)];
+        setAiMessage("My brain is a bit fuzzy right now, but I'll still play!");
+      }
         
-        await playMove(finalMove);
+      if (validMoves.length > 0 && finalMove !== undefined) {
+        await playMove(finalMove, 1);
         
-        // Sometimes trash talk after a move
-        if (Math.random() > 0.3) {
+        // Sometimes trash talk after a move, only if API didn't just fail
+        if (aiMoveStr && Math.random() > 0.3) {
           triggerTrashTalk();
         }
       }
@@ -93,11 +107,9 @@ export default function Home() {
       aiActionInProgress.current = false;
     };
 
-    if (currentPlayer === 1 && !isGameOver && !aiActionInProgress.current) {
-      handleAITurn();
-    }
+    handleAITurn();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPlayer, isGameOver, history.length]);
+  }, [currentPlayer, isGameOver, history.length, phase, hands]);
 
   // Handle Trash Talk
   const triggerTrashTalk = useCallback(async () => {
@@ -106,18 +118,20 @@ export default function Home() {
     const msg = await callAI('trash_talk');
     if (msg) setAiMessage(msg);
     setIsAiThinking(false);
-  }, [board, currentPlayer, isGameOver, apiKey]);
+  }, [board, currentPlayer, isGameOver, apiKey, phase]);
 
   // Initial Trash Talk
   useEffect(() => {
     if (board.every(val => val === 7 || val === 0) && board[7] === 0 && board[15] === 0) {
        // Game just started
-       setAiMessage("Let's see what you've got, human. Prepare to lose.");
+       setAiMessage("Let's see what you've got, human. Prepare to lose in this RACING start.");
     }
   }, []);
 
   const handleAskHint = async () => {
-    if (currentPlayer !== 0 || isGameOver || aiActionInProgress.current) return;
+    if (isGameOver || aiActionInProgress.current) return;
+    if (phase === GamePhase.TURN_BASED && currentPlayer !== 0) return;
+    if (phase === GamePhase.RACING && !hands[0].needsDecision) return;
     
     aiActionInProgress.current = true;
     setIsAiThinking(true);
@@ -128,13 +142,16 @@ export default function Home() {
   };
 
   const handlePitClick = async (index: number) => {
-    if (currentPlayer !== 0 || isGameOver || aiActionInProgress.current || isAnimating) return;
+    if (isGameOver || aiActionInProgress.current || isAnimating) return;
+    
+    if (phase === GamePhase.TURN_BASED && currentPlayer !== 0) return;
+    if (phase === GamePhase.RACING && !hands[0].needsDecision) return;
     
     const validMoves = game.getValidMoves(0);
     if (!validMoves.includes(index)) return;
 
     setAiMessage(null); // Clear message when player moves
-    await playMove(index);
+    await playMove(index, 0);
   };
 
   return (
@@ -168,6 +185,10 @@ export default function Home() {
                 <div className="inline-block px-8 py-2.5 rounded-full bg-gradient-to-r from-[#d4a017] to-[#8b5e3c] text-[#140e0c] font-bold text-lg shadow-[0_0_20px_rgba(212,160,23,0.3)] animate-pulse border border-[#fcd34d]">
                   Game Over! {winner === 0 ? 'You Win! 🎉' : winner === 1 ? 'AI Wins! 🤖' : 'It\'s a Draw! 🤝'}
                 </div>
+              ) : phase === GamePhase.RACING ? (
+                <div className="inline-block px-8 py-2.5 rounded-full font-bold text-sm tracking-widest uppercase shadow-lg transition-colors border bg-gradient-to-r from-[#6b3d20] to-[#5a2c2c] text-[#fcd34d] border-[#8b5e3c]">
+                  Racing Phase: {hands[0].needsDecision ? 'Your Turn to Pick' : 'Moving...'}
+                </div>
               ) : (
                  <div className={`inline-block px-8 py-2.5 rounded-full font-bold text-sm tracking-widest uppercase shadow-lg transition-colors border
                    ${currentPlayer === 0 
@@ -179,7 +200,7 @@ export default function Home() {
               )}
               
               {/* Seeds In Hand Indicator */}
-              {seedsInHand !== undefined && seedsInHand > 0 && !isGameOver && (
+              {phase === GamePhase.TURN_BASED && seedsInHand !== undefined && seedsInHand > 0 && !isGameOver && (
                 <div className={`font-bold px-5 py-2.5 rounded-full shadow-lg border flex items-center gap-2 transition-colors duration-300 text-sm tracking-wide
                   ${currentPlayer === 0 
                     ? 'bg-[#3d1f0b] text-[#fcd34d] border-[#8b5e3c]' 
@@ -188,6 +209,12 @@ export default function Home() {
                 `}>
                   <span className="text-xl drop-shadow-md">✋</span> 
                   <span>{seedsInHand} in hand</span>
+                </div>
+              )}
+              {phase === GamePhase.RACING && !isGameOver && (
+                <div className="font-bold px-5 py-2.5 rounded-full shadow-lg border flex items-center gap-4 transition-colors duration-300 text-sm tracking-wide bg-gradient-to-r from-[#3d1f0b] to-[#1a0f08] text-[#fcd34d] border-[#8b5e3c]">
+                  <span><span className="text-xl">✋</span> You: {hands[0].seeds}</span>
+                  <span className="text-[#e7a1a1]">AI: {hands[1].seeds} <span className="text-xl">🤖</span></span>
                 </div>
               )}
             </div>
@@ -206,6 +233,7 @@ export default function Home() {
               onPitClick={handlePitClick} 
               validMoves={game.getValidMoves(0)}
               activePit={activePit}
+              activePits={phase === GamePhase.RACING ? hands.map(h => h.currentPit).filter((p): p is number => p !== null) : []}
               seedsInHand={seedsInHand}
             />
 

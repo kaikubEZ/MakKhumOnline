@@ -9,12 +9,15 @@ interface BoardProps {
   onPitClick: (index: number) => void;
   validMoves: number[];
   activePit?: number | null;
+  activePits?: number[];
   seedsInHand?: number;
 }
 
-export const Board: React.FC<BoardProps> = ({ board, currentPlayer, onPitClick, validMoves, activePit, seedsInHand }) => {
+export const Board: React.FC<BoardProps> = ({ board, currentPlayer, onPitClick, validMoves, activePit, activePits = [], seedsInHand }) => {
   // Player 0 (Human) pits: 0-6 (bottom row)
   // Player 1 (AI) pits: 8-14 (top row, rendered in reverse order 14 to 8)
+  
+  const isPitActive = (i: number) => activePit === i || activePits.includes(i);
 
   const p0Pits = [];
   for (let i = 0; i < 7; i++) {
@@ -26,7 +29,7 @@ export const Board: React.FC<BoardProps> = ({ board, currentPlayer, onPitClick, 
         player={0}
         isClickable={currentPlayer === 0 && validMoves.includes(i)}
         onClick={onPitClick}
-        isActive={activePit === i}
+        isActive={isPitActive(i)}
       />
     );
   }
@@ -41,7 +44,7 @@ export const Board: React.FC<BoardProps> = ({ board, currentPlayer, onPitClick, 
         player={1}
         isClickable={false} // Human cannot click AI's pits
         onClick={onPitClick}
-        isActive={activePit === i}
+        isActive={isPitActive(i)}
       />
     );
   }
@@ -60,7 +63,7 @@ export const Board: React.FC<BoardProps> = ({ board, currentPlayer, onPitClick, 
       <div className="flex justify-between items-center relative z-10 gap-3 sm:gap-6 min-w-[800px]">
 
         {/* Player 1 (AI) Store */}
-        <Store index={15} seeds={board[15]} player={1} isActive={activePit === 15} />
+        <Store index={15} seeds={board[15]} player={1} isActive={isPitActive(15)} />
 
         {/* Pits Area */}
         <div className="flex flex-col gap-3 flex-grow px-2 sm:px-4">
@@ -79,7 +82,7 @@ export const Board: React.FC<BoardProps> = ({ board, currentPlayer, onPitClick, 
         </div>
 
         {/* Player 0 (Human) Store */}
-        <Store index={7} seeds={board[7]} player={0} isActive={activePit === 7} />
+        <Store index={7} seeds={board[7]} player={0} isActive={isPitActive(7)} />
 
       </div>
     </div>

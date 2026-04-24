@@ -1,32 +1,48 @@
-import { GameState, MoveResult, AnimationState, MoveHistoryEntry } from './types';
+import { GameState, MoveResult, AnimationState, MoveHistoryEntry, GamePhase, PlayerHand } from './types';
 
 export class MakKhumGame {
   private board: GameState;
+  private phase: GamePhase;
   private currentPlayer: number;
   private isGameOver: boolean;
   private winner: number | null;
   private history: MoveHistoryEntry[];
+  
+  private hands: PlayerHand[];
 
   constructor(initialState?: GameState, startingPlayer = 0) {
     if (initialState) {
       this.board = [...initialState];
     } else {
       this.board = Array(16).fill(0);
-      // Initialize 14 pits with 7 seeds each
       for (let i = 0; i < 7; i++) {
         this.board[i] = 7;
         this.board[i + 8] = 7;
       }
     }
+    this.phase = GamePhase.RACING;
     this.currentPlayer = startingPlayer;
     this.isGameOver = false;
     this.winner = null;
     this.history = [];
+    
+    this.hands = [
+      { isActive: false, hasDiedOnce: false, seeds: 0, currentPit: null, needsDecision: true },
+      { isActive: false, hasDiedOnce: false, seeds: 0, currentPit: null, needsDecision: true }
+    ];
     this.checkWinCondition();
   }
 
   getBoard(): GameState {
     return [...this.board];
+  }
+
+  getPhase(): GamePhase {
+    return this.phase;
+  }
+
+  getHands(): PlayerHand[] {
+    return [...this.hands];
   }
 
   getCurrentPlayer(): number {
@@ -56,10 +72,82 @@ export class MakKhumGame {
     return moves;
   }
 
+  // --- RACING PHASE LOGIC ---
+
+  selectPit(player: number, pitIndex: number): void {
+    if (this.phase !== GamePhase.RACING) throw new Error("Can only select pit in RACING phase");
+    if (!this.getValidMoves(player).includes(pitIndex)) throw new Error("Invalid pit selection");
+    
+    const hand = this.hands[player];
+    hand.seeds = this.board[pitIndex];
+    this.board[pitIndex] = 0;
+    hand.currentPit = pitIndex;
+    hand.needsDecision = false;
+    hand.isActive = true;
+  }
+
+  tick(): string[] {
+    const messages: string[] = [];
+    if (this.phase !== GamePhase.RACING || this.isGameOver) return messages;
+
+    // Both players must have made their decision (neither needs decision)
+    if (this.hands[0].needsDecision || this.hands[1].needsDecision) return messages;
+    
+    // Check if at least one is active
+    if (!this.hands[0].isActive && !this.hands[1].isActive) return messages;
+
+    for (let p = 0; p < 2; p++) {
+      const hand = this.hands[p];
+      if (!hand.isActive) continue;
+
+      const playerStoreIndex = p === 0 ? 7 : 15;
+      const opponentStoreIndex = p === 0 ? 15 : 7;
+
+      hand.currentPit = (hand.currentPit! + 1) % 16;
+      if (hand.currentPit === opponentStoreIndex) {
+        hand.currentPit = (hand.currentPit + 1) % 16;
+      }
+
+      this.board[hand.currentPit]++;
+      hand.seeds--;
+
+      if (hand.seeds === 0) {
+        if (hand.currentPit === playerStoreIndex) {
+          hand.needsDecision = true;
+          hand.isActive = false;
+          messages.push(`Player ${p === 0 ? 'You' : 'AI'} landed in the Store! Pick next pit.`);
+        } else {
+          // Check if pit was empty originally (if board count is 1, it only has the single seed we just dropped)
+          // Exception: if BOTH players dropped here at the exact same time, it would be 2, preventing empty-death for both. This naturally mimics real-life collisions correctly.
+          if (this.board[hand.currentPit] === 1) {
+            hand.isActive = false;
+            hand.hasDiedOnce = true;
+            messages.push(`Player ${p === 0 ? 'You' : 'AI'} fell into an empty pit and died!`);
+          } else {
+            // Chaining pickup
+            hand.seeds = this.board[hand.currentPit];
+            this.board[hand.currentPit] = 0;
+          }
+        }
+      }
+    }
+
+    if (this.hands[0].hasDiedOnce && !this.hands[0].isActive && 
+        this.hands[1].hasDiedOnce && !this.hands[1].isActive) {
+      this.phase = GamePhase.TURN_BASED;
+      messages.push("Both players have died. Game is now TURN_BASED.");
+    }
+    
+    this.checkWinCondition();
+    return messages;
+  }
+
+  // --- TURN_BASED PHASE LOGIC ---
+
   play(pitIndex: number): MoveResult {
     const states: AnimationState[] = [];
-    if (this.isGameOver) {
-      return { nextTurn: this.currentPlayer, states: [{ board: this.getBoard(), seedsInHand: 0, activePit: null }], messages: ["Game is already over."] };
+    if (this.isGameOver || this.phase === GamePhase.RACING) {
+      return { nextTurn: this.currentPlayer, states: [], messages: [] };
     }
 
     // Validate move
