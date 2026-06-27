@@ -1,8 +1,9 @@
-import { useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useGameStore } from './store/gameStore'
 import { Board } from './components/Board'
+import { SettingsModal } from './components/SettingsModal'
 
-function statusText(phase: string, racing: ReturnType<typeof useGameStore.getState>['racing'], isAITurn: boolean, result: string | null): string {
+function statusText(phase: string, racing: ReturnType<typeof useGameStore.getState>['racing'], isThinking: boolean, result: string | null): string {
   if (phase === 'idle') return 'Press Start to play'
   if (phase === 'racing') {
     if (!racing) return ''
@@ -12,7 +13,7 @@ function statusText(phase: string, racing: ReturnType<typeof useGameStore.getSta
     if (s === 'dead') return 'You died! Waiting for AI...'
     return 'Racing Phase — seeds moving...'
   }
-  if (phase === 'turnbased') return isAITurn ? 'AI is thinking...' : 'Your turn — click a pit'
+  if (phase === 'turnbased') return isThinking ? 'AI is thinking...' : 'Your turn — click a pit'
   if (phase === 'gameover') {
     if (result === 'player') return '🏆 You win!'
     if (result === 'ai') return 'AI wins!'
@@ -22,9 +23,11 @@ function statusText(phase: string, racing: ReturnType<typeof useGameStore.getSta
 }
 
 export default function App() {
-  const { phase, racing, turn, result, isAITurn, startGame, tick, aiMove } = useGameStore()
+  const { phase, racing, turn, result, isAITurn, isThinking, startGame, tick, aiMove, loadApiKey } = useGameStore()
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
-  // Racing tick — runs at 400ms when both have selected and phase isn't complete
+  useEffect(() => { loadApiKey() }, [])
+
   const shouldTick =
     phase === 'racing' &&
     !!racing &&
@@ -35,23 +38,31 @@ export default function App() {
     if (!shouldTick) return
     const id = setInterval(tick, 400)
     return () => clearInterval(id)
-  }, [shouldTick]) // tick is a stable Zustand action
+  }, [shouldTick])
 
-  // AI turn in turn-based
   useEffect(() => {
     if (!isAITurn) return
     const id = setTimeout(aiMove, 600)
     return () => clearTimeout(id)
-  }, [isAITurn]) // aiMove is stable
+  }, [isAITurn])
 
   const board = turn?.board ?? racing?.board
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-8 p-8 bg-gray-50">
+    <div className="relative min-h-screen flex flex-col items-center justify-center gap-8 p-8 bg-gray-50">
+      <button
+        onClick={() => setSettingsOpen(true)}
+        className="absolute top-4 right-4 px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-100"
+      >
+        ⚙ Settings
+      </button>
+
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
       <h1 className="text-4xl font-bold text-gray-800">Mak Khum</h1>
 
       <p className="text-lg text-gray-600 h-7">
-        {statusText(phase, racing, isAITurn, result)}
+        {statusText(phase, racing, isThinking, result)}
       </p>
 
       {phase !== 'idle' && <Board />}
