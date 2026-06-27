@@ -3,6 +3,7 @@ import { useGameStore } from './store/gameStore'
 import { Board } from './components/Board'
 import { SettingsModal } from './components/SettingsModal'
 import { TrashTalkBubble } from './components/TrashTalkBubble'
+import { HintPanel } from './components/HintPanel'
 
 function statusText(phase: string, racing: ReturnType<typeof useGameStore.getState>['racing'], isThinking: boolean, result: string | null): string {
   if (phase === 'idle') return 'Press Start to play'
@@ -69,6 +70,8 @@ export default function App() {
       {phase === 'turnbased' && <TrashTalkBubble />}
 
       {phase !== 'idle' && <Board />}
+
+      {phase === 'turnbased' && <HintPanel />}
 
       {board && (
         <div className="text-sm text-gray-500">
