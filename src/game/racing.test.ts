@@ -385,8 +385,12 @@ describe('racingTick: collision immunity', () => {
       ai: makeHand({ status: 'moving', pit: 4, seeds: 1 }),
     })
     const next = racingTick(state)
-    // After +2 deposit, player chains from pit 5 (2 seeds), AI chains from remaining
+    // After +2 deposit, pit splits evenly: each actor gets 1 seed
     expect(next.events.some(e => e.type === 'CHAIN_TRIGGERED')).toBe(true)
+    expect(next.player.seeds).toBeGreaterThan(0)
+    expect(next.ai.seeds).toBeGreaterThan(0)
+    expect(next.player.status).not.toBe('dead')
+    expect(next.ai.status).not.toBe('dead')
   })
 
   it('non-colliding advance still works when actors start at same pit', () => {

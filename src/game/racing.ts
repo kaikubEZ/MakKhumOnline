@@ -97,6 +97,8 @@ export function racingTick(state: RacingState): RacingState {
     const nextPit = playerNext!
     // Both deposit their seed simultaneously
     board[nextPit] += 2
+    // Snapshot pit count before any chaining so we can split fairly if both actors chain
+    const depositedCount = board[nextPit]
 
     // Resolve player
     player = { ...player, pit: nextPit, seeds: player.seeds - 1 }
@@ -105,15 +107,17 @@ export function racingTick(state: RacingState): RacingState {
         player = { ...player, status: 'paused' }
         events.push(event('PLAYER_PAUSED', 'player', nextPit))
       } else {
-        // Collision immunity: no death even if pit was empty — chain instead
-        const chainSeeds = board[nextPit]
-        board[nextPit] = 0
+        // Collision immunity: no death even if pit was empty — chain instead.
+        // If AI also runs out this tick, split the pit evenly so AI isn't left with 0.
+        const aiAlsoChains = ai.seeds === 1 && !isOwnStore(nextPit, 'ai')
+        const chainSeeds = aiAlsoChains ? Math.floor(depositedCount / 2) : board[nextPit]
+        board[nextPit] -= chainSeeds
         player = { ...player, seeds: chainSeeds }
         events.push(event('CHAIN_TRIGGERED', 'player', nextPit))
       }
     }
 
-    // Resolve AI (board may have been partially modified by player chain above)
+    // Resolve AI (board now reflects player's share if a split occurred)
     ai = { ...ai, pit: nextPit, seeds: ai.seeds - 1 }
     if (ai.seeds === 0) {
       if (isOwnStore(nextPit, 'ai')) {
