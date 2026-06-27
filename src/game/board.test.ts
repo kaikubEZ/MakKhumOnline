@@ -5,9 +5,6 @@ import {
   oppositePit,
   isStore,
   ownerOf,
-  PLAYER_PITS,
-  AI_PITS,
-  INITIAL_SEEDS,
 } from './board'
 
 describe('board', () => {

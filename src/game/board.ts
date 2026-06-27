@@ -1,4 +1,4 @@
-import { PlayerKey } from './types'
+import type { PlayerKey } from './types'
 
 export const PLAYER_PITS = [0, 1, 2, 3, 4, 5, 6]
 export const PLAYER_STORE = 7

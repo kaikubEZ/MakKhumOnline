@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { selectStartPit, racingTick, RacingState, RacingHand } from './racing'
+import { selectStartPit, racingTick } from './racing'
+import type { RacingState, RacingHand } from './racing'
 import { PLAYER_STORE, AI_STORE } from './board'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

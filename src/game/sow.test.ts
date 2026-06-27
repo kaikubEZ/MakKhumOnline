@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { sow } from './sow'
-import { createInitialBoard, AI_STORE, PLAYER_STORE } from './board'
+import { createInitialBoard } from './board'
 
 describe('sow', () => {
   describe('basic sowing', () => {

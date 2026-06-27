@@ -1,4 +1,4 @@
-import { PlayerKey } from './types'
+import type { PlayerKey } from './types'
 import { AI_STORE, PLAYER_STORE } from './board'
 
 /**

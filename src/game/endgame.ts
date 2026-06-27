@@ -1,4 +1,4 @@
-import { GameResult } from './types'
+import type { GameResult } from './types'
 import { PLAYER_PITS, PLAYER_STORE, AI_PITS, AI_STORE } from './board'
 
 /**

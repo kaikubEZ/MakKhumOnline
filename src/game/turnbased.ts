@@ -1,4 +1,4 @@
-import { PlayerKey, GameEvent } from './types'
+import type { PlayerKey, GameEvent } from './types'
 import { sow } from './sow'
 import {
   oppositePit,

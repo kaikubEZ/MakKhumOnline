@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { PLAYER_STORE, AI_STORE } from './board'
-import { selectStartPit, racingTick, RacingState } from './racing'
-import { executeMove, TurnState } from './turnbased'
+import { selectStartPit, racingTick } from './racing'
+import type { RacingState } from './racing'
+import { executeMove } from './turnbased'
+import type { TurnState } from './turnbased'
 import { sweepSeeds, determineWinner } from './endgame'
 
 describe('integration', () => {

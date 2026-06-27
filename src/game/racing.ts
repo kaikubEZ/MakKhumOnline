@@ -1,4 +1,4 @@
-import { PlayerKey, GameEvent, GameEventType } from './types'
+import type { PlayerKey, GameEvent, GameEventType } from './types'
 import { PLAYER_STORE, AI_STORE } from './board'
 
 export interface RacingHand {

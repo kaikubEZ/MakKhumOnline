@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { executeMove, TurnState } from './turnbased'
+import { executeMove } from './turnbased'
+import type { TurnState } from './turnbased'
 import { PLAYER_STORE, AI_STORE } from './board'
 
 function makeState(board: number[], currentTurn: TurnState['currentTurn'] = 'player'): TurnState {
