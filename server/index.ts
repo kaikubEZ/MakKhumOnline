@@ -75,9 +75,14 @@ export function startServer(port = 3001): Promise<{ port: number; close(): void 
 
     ws.on('message', (data) => {
       const msg = JSON.parse(data.toString()) as ClientMessage
+      const opponent = room.players.find(p => p !== ws)
+      if (!opponent) return
       if (msg.type === 'move') {
-        const opponent = room.players.find(p => p !== ws)
-        if (opponent) send(opponent, { type: 'opponent_move', pit: msg.pit })
+        send(opponent, { type: 'opponent_move', pit: msg.pit })
+      } else if (msg.type === 'racing_select') {
+        send(opponent, { type: 'opponent_racing_select', pit: msg.pit })
+      } else if (msg.type === 'racing_state') {
+        send(opponent, { type: 'racing_state', state: msg.state })
       }
     })
 

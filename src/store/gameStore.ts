@@ -98,6 +98,8 @@ interface GameStore {
   startOnlineGame(role: MyRole): void
   player2Move(pit: number): void
   applyOpponentMove(pit: number): void
+  applyRacingState(state: RacingState): void
+  applyRacingSelect(pit: number): void
   setSocketSend(fn: ((msg: ClientMessage) => void) | null): void
   leaveOnlineGame(): void
   setTransitioning(v: boolean): void
@@ -187,9 +189,23 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   selectRacingPit(pit: number) {
-    const { racing } = get()
+    const { racing, mode, myRole, socketSend } = get()
     if (!racing) return
 
+    if (mode === 'online') {
+      if (myRole === 'player1') {
+        // host: apply my own pick to the 'player' side and broadcast the snapshot
+        const state = selectStartPit(racing, 'player', pit)
+        set({ racing: state })
+        socketSend?.({ type: 'racing_state', state })
+      } else {
+        // guest: my pits live on the 'ai' side — send the pick to the host, who simulates
+        socketSend?.({ type: 'racing_select', pit })
+      }
+      return
+    }
+
+    // local: pick my pit, then auto-pick a random pit for the AI opponent
     let state = selectStartPit(racing, 'player', pit)
 
     if (state.ai.status === 'selecting' || state.ai.status === 'paused') {
@@ -201,8 +217,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   tick() {
-    const { racing, phase, paused } = get()
+    const { racing, phase, paused, mode, socketSend } = get()
     if (!racing || phase !== 'racing' || racing.phase === 'complete' || paused) return
+    const isOnline = mode === 'online'
 
     const prevLen = racing.events.length
     let state = racingTick(racing)
@@ -220,7 +237,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
     }
 
-    if (state.ai.status === 'paused') {
+    // local: auto re-pick for the AI when it pauses. Online: the human guest re-picks.
+    if (!isOnline && state.ai.status === 'paused') {
       const aiPits = getValidPits(state.board, 'ai')
       if (aiPits.length > 0) state = selectStartPit(state, 'ai', pick(aiPits))
     }
@@ -228,9 +246,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (state.phase === 'complete') {
       const turn: TurnState = { board: state.board, currentTurn: 'player', events: [], phase: 'turnbased' }
       set({ racing: state, transitioning: true })
+      if (isOnline) socketSend?.({ type: 'racing_state', state })
       setTimeout(() => { if (get().transitioning) set({ phase: 'turnbased', turn, transitioning: false }) }, 1800)
     } else {
       set({ racing: state })
+      if (isOnline) socketSend?.({ type: 'racing_state', state })
     }
   },
 
@@ -359,20 +379,54 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   startOnlineGame(role) {
-    const firstTurn: TurnState = {
-      board: createInitialBoard(),
-      currentTurn: 'player',
-      events: [],
-      phase: 'turnbased',
-    }
+    // Online matches begin in the racing phase, just like local games. Both
+    // players start in 'selecting'; the racing simulation only advances once
+    // both have chosen a start pit (see App's shouldTick gate).
     set({
-      phase: 'turnbased', turn: firstTurn, racing: null, result: null,
+      phase: 'racing', racing: initRacing(), turn: null, result: null,
       isAITurn: false, mode: 'online', myRole: role,
       opponentDisconnected: false,
       hint: null, trashTalk: null, trashTalkLines: [], paused: false,
       transitioning: false, eventPopup: null, tbAnim: null,
       pitHistory: { player: [], ai: [] }, moveHistory: [],
     })
+  },
+
+  // Host only: a guest's racing pick arrives — apply it to the 'ai' side and rebroadcast.
+  applyRacingSelect(pit) {
+    const { racing, mode, myRole, socketSend } = get()
+    if (mode !== 'online' || myRole !== 'player1' || !racing) return
+    const state = selectStartPit(racing, 'ai', pit)
+    set({ racing: state })
+    socketSend?.({ type: 'racing_state', state })
+  },
+
+  // Guest only: adopt the host's authoritative racing snapshot and mirror its transitions.
+  applyRacingState(state) {
+    const { mode, myRole, racing: prev, transitioning } = get()
+    if (mode !== 'online' || myRole !== 'player2') return
+
+    // Surface a popup for the most recent notable event since the last snapshot.
+    const prevLen = prev?.events.length ?? 0
+    const newEvents = state.events.slice(prevLen)
+    for (let i = newEvents.length - 1; i >= 0; i--) {
+      const label = eventToLabel(newEvents[i].type)
+      if (label) {
+        const key = ++popupSeq
+        const actor = newEvents[i].actor ?? 'player'
+        set({ eventPopup: { label, key, actor } })
+        setTimeout(() => set(s => s.eventPopup?.key === key ? { eventPopup: null } : {}), 1400)
+        break
+      }
+    }
+
+    if (state.phase === 'complete' && !transitioning) {
+      const turn: TurnState = { board: state.board, currentTurn: 'player', events: [], phase: 'turnbased' }
+      set({ racing: state, transitioning: true })
+      setTimeout(() => { if (get().transitioning) set({ phase: 'turnbased', turn, transitioning: false }) }, 1800)
+    } else {
+      set({ racing: state })
+    }
   },
 
   player2Move(pit) {

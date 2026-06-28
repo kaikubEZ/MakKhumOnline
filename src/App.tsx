@@ -33,9 +33,10 @@ export default function App() {
   const {
     phase, racing, turn, result, isAITurn, isThinking,
     paused, transitioning, trashTalk, tbAnim, pitHistory, difficulty, moveHistory,
-    mode,
+    mode, myRole,
     startGame, tick, tickTbAnim, aiMove, loadApiKey, setPaused, newGame,
     startOnlineGame, applyOpponentMove, setSocketSend, leaveOnlineGame,
+    applyRacingState, applyRacingSelect,
   } = useGameStore()
 
   const animFrame = tbAnim?.frames[tbAnim.frame]
@@ -57,6 +58,10 @@ export default function App() {
         setScreen('game')
       } else if (msg.type === 'opponent_move') {
         applyOpponentMove(msg.pit)
+      } else if (msg.type === 'opponent_racing_select') {
+        applyRacingSelect(msg.pit)
+      } else if (msg.type === 'racing_state') {
+        applyRacingState(msg.state)
       } else if (msg.type === 'opponent_disconnected') {
         leaveOnlineGame()
         disconnect()
@@ -68,10 +73,15 @@ export default function App() {
     return () => { unsub(); setSocketSend(null) }
   }, [screen])
 
+  // Online: only the host (player1) runs the authoritative simulation, and only
+  // once BOTH sides have chosen a start pit (guest renders broadcast snapshots).
+  const isGuest = mode === 'online' && myRole === 'player2'
   const shouldTick =
     phase === 'racing' &&
     !!racing &&
+    !isGuest &&
     racing.player.status !== 'selecting' &&
+    racing.ai.status !== 'selecting' &&
     racing.phase !== 'complete' &&
     !transitioning &&
     !paused
@@ -138,10 +148,13 @@ export default function App() {
   const actionText = (() => {
     if (phase === 'racing') {
       if (!racing) return ''
-      const s = racing.player.status
+      // The guest (player2) controls the 'ai' side of the shared board model.
+      const myHand = isGuest ? racing.ai : racing.player
+      const s = myHand.status
+      const opponentLabel = mode === 'online' ? 'opponent' : 'AI'
       if (s === 'selecting') return 'Select any non-empty pit to start racing'
       if (s === 'paused') return 'Landed in your Store — pick a pit to continue'
-      if (s === 'dead') return 'You died! Waiting for AI to finish...'
+      if (s === 'dead') return `You died! Waiting for ${opponentLabel} to finish...`
       return 'Seeds are racing — watch for chains and collisions!'
     }
     if (phase === 'turnbased') {
