@@ -101,3 +101,10 @@ export function startServer(port = 3001): Promise<{ port: number; close(): void 
     })
   })
 }
+
+// Run when executed directly
+import { pathToFileURL } from 'url'
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const port = Number(process.env.PORT ?? 3001)
+  startServer(port).then(({ port: p }) => console.log(`Server listening on :${p}`))
+}

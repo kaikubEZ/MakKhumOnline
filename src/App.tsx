@@ -68,17 +68,6 @@ export default function App() {
     return () => { unsub(); setSocketSend(null) }
   }, [screen])
 
-  useEffect(() => {
-    if (screen !== 'waiting') return
-    const unsub = onMessage((msg) => {
-      if (msg.type === 'game_start') {
-        startOnlineGame(msg.yourRole)
-        setScreen('game')
-      }
-    })
-    return unsub
-  }, [screen])
-
   const shouldTick =
     phase === 'racing' &&
     !!racing &&
@@ -95,6 +84,10 @@ export default function App() {
 
   async function handleCreateRoom() {
     setLobbyError(null)
+    // ponytail: subscribe before connect — server sends game_start when 2nd player joins, before React re-renders
+    const unsub = onMessage((msg) => {
+      if (msg.type === 'game_start') { unsub(); startOnlineGame(msg.yourRole); setScreen('game') }
+    })
     try {
       const res = await fetch('http://localhost:3001/rooms', { method: 'POST' })
       const { code } = await res.json() as { code: string }
@@ -102,16 +95,22 @@ export default function App() {
       setWaitingCode(code)
       setScreen('waiting')
     } catch {
+      unsub()
       setLobbyError('Failed to create room. Is the server running?')
     }
   }
 
   async function handleJoinRoom(code: string) {
     setLobbyError(null)
+    // ponytail: subscribe before connect — game_start arrives before setScreen('waiting') re-renders
+    const unsub = onMessage((msg) => {
+      if (msg.type === 'game_start') { unsub(); startOnlineGame(msg.yourRole); setScreen('game') }
+    })
     try {
       await connect(code)
       setScreen('waiting')
     } catch {
+      unsub()
       setLobbyError('Could not connect to that room. Check the code and try again.')
     }
   }

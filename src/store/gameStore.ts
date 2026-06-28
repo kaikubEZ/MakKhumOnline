@@ -268,11 +268,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!turn || turn.currentTurn !== 'player' || isThinking || tbAnim) return
 
     set({ hint: null, trashTalk: null })
-    const { pitHistory, moveHistory } = get()
+    const { pitHistory, moveHistory, mode, socketSend } = get()
     const pending = executeMove(turn, pit)
     const frames = computeTurnFrames(turn, pit)
     const storeGain = pending.board[7] - turn.board[7]
     const rec: MoveRecord = { actor: 'player', pit, boardBefore: turn.board, validPits: getValidPits(turn.board, 'player'), storeGain }
+    if (mode === 'online') socketSend?.({ type: 'move', pit })
     set({ pitHistory: { ...pitHistory, player: [...pitHistory.player, pit] }, moveHistory: [...moveHistory, rec], tbAnim: { frames, frame: 0, pending } })
   },
 
