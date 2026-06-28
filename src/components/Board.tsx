@@ -14,7 +14,7 @@ const POPUP_COLORS: Record<string, string> = {
 function Pit({ seeds, onClick, state, isStore, label, index }: {
   seeds: number
   onClick?: () => void
-  state?: 'selectable' | 'active' | 'empty'
+  state?: 'selectable' | 'active' | 'active-player' | 'active-ai' | 'empty'
   isStore?: boolean
   label?: string
   index?: number
@@ -27,11 +27,15 @@ function Pit({ seeds, onClick, state, isStore, label, index }: {
     ? 'bg-amber-700 border-amber-900 shadow-inner'
     : state === 'selectable'
       ? 'bg-blue-100 border-blue-500 ring-2 ring-blue-300 cursor-pointer hover:bg-blue-200'
-      : state === 'active'
-        ? 'bg-yellow-100 border-yellow-400 ring-2 ring-yellow-300'
-        : state === 'empty'
-          ? 'bg-amber-200/40 border-amber-700/30'
-          : 'bg-amber-100 border-amber-600'
+      : state === 'active-player'
+        ? 'bg-blue-200 border-blue-500 ring-2 ring-blue-400'
+        : state === 'active-ai'
+          ? 'bg-red-200 border-red-500 ring-2 ring-red-400'
+          : state === 'active'
+            ? 'bg-yellow-100 border-yellow-400 ring-2 ring-yellow-300'
+            : state === 'empty'
+              ? 'bg-amber-200/40 border-amber-700/30'
+              : 'bg-amber-100 border-amber-600'
 
   const textColor = isStore ? 'text-amber-100' : state === 'empty' ? 'text-amber-600/50' : 'text-amber-900'
 
@@ -68,14 +72,17 @@ export function Board() {
     if (flipped && isAITurn) getValidPits(board, 'ai').forEach(p => clickable.add(p))
   }
 
-  // Active pits (currently being sown)
+  const playerActivePits = new Set<number>()
+  const aiActivePits = new Set<number>()
   const activePits = new Set<number>()
-  if (racing?.player.pit !== null && racing?.player.status === 'moving') activePits.add(racing.player.pit!)
-  if (racing?.ai.pit !== null && racing?.ai.status === 'moving') activePits.add(racing.ai.pit!)
+  if (racing?.player.pit !== null && racing?.player.status === 'moving') playerActivePits.add(racing.player.pit!)
+  if (racing?.ai.pit !== null && racing?.ai.status === 'moving') aiActivePits.add(racing.ai.pit!)
   if (animFrame) activePits.add(animFrame.activePit)
 
-  function pitState(i: number): 'selectable' | 'active' | 'empty' | undefined {
+  function pitState(i: number): 'selectable' | 'active' | 'active-player' | 'active-ai' | 'empty' | undefined {
     if (clickable.has(i)) return 'selectable'
+    if (playerActivePits.has(i)) return 'active-player'
+    if (aiActivePits.has(i)) return 'active-ai'
     if (activePits.has(i)) return 'active'
     if (board[i] === 0) return 'empty'
     return undefined
