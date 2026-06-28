@@ -53,15 +53,16 @@ function Pit({ seeds, onClick, state, isStore, label, index }: {
 }
 
 export function Board() {
-  const { phase, racing, turn, isAITurn, eventPopup, selectRacingPit, playerMove } = useGameStore()
+  const { phase, racing, turn, isAITurn, tbAnim, eventPopup, selectRacingPit, playerMove } = useGameStore()
 
-  const board = turn?.board ?? racing?.board ?? Array(16).fill(0)
+  const animFrame = tbAnim?.frames[tbAnim.frame]
+  const board = animFrame?.board ?? turn?.board ?? racing?.board ?? Array(16).fill(0)
 
   const clickable = new Set<number>()
   if (phase === 'racing' && racing) {
     const s = racing.player.status
     if (s === 'selecting' || s === 'paused') getValidPits(board, 'player').forEach(p => clickable.add(p))
-  } else if (phase === 'turnbased' && turn && !isAITurn) {
+  } else if (phase === 'turnbased' && turn && !isAITurn && !tbAnim) {
     getValidPits(board, 'player').forEach(p => clickable.add(p))
   }
 
@@ -69,6 +70,7 @@ export function Board() {
   const activePits = new Set<number>()
   if (racing?.player.pit !== null && racing?.player.status === 'moving') activePits.add(racing.player.pit!)
   if (racing?.ai.pit !== null && racing?.ai.status === 'moving') activePits.add(racing.ai.pit!)
+  if (animFrame) activePits.add(animFrame.activePit)
 
   function pitState(i: number): 'selectable' | 'active' | 'empty' | undefined {
     if (clickable.has(i)) return 'selectable'

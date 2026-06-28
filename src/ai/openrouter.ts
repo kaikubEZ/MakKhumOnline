@@ -10,7 +10,7 @@ const MODELS = [
   'openai/gpt-oss-20b:free',
 ]
 
-async function callModel(apiKey: string, model: string, prompt: string): Promise<string> {
+async function callModel(apiKey: string, model: string, prompt: string, maxTokens = 150): Promise<string> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 8000)
   try {
@@ -23,7 +23,8 @@ async function callModel(apiKey: string, model: string, prompt: string): Promise
       body: JSON.stringify({
         model,
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 150,
+        max_tokens: maxTokens,
+        include_reasoning: false,
       }),
       signal: controller.signal,
     })
@@ -35,10 +36,10 @@ async function callModel(apiKey: string, model: string, prompt: string): Promise
   }
 }
 
-export async function askAI(apiKey: string, prompt: string): Promise<string | null> {
+export async function askAI(apiKey: string, prompt: string, maxTokens = 150): Promise<string | null> {
   for (const model of MODELS) {
     try {
-      return await callModel(apiKey, model, prompt)
+      return await callModel(apiKey, model, prompt, maxTokens)
     } catch {
       // try next
     }

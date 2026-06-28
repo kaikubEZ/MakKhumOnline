@@ -21,8 +21,16 @@ export function hintPrompt(board: number[], validPits: number[]): string {
 export function trashTalkPrompt(): string {
   return (
     `You are a smug AI opponent in a Thai mancala game called Mak Khum. ` +
-    `Write ONE short, funny, smug comment about your move. 10–20 words. No quotation marks.`
+    `Reply with ONLY one short smug taunt, 8–15 words, no quotes, no explanation, no extra text.`
   )
+}
+
+const META_RE = /^(the user|count:|let'?s|constraint|we need|that'?s|add |step |here |ok |sure |i |write|reply)/i
+
+export function extractTrashTalk(text: string): string {
+  const lines = text.split('\n').map(l => l.trim().replace(/^["']|["']$/g, '')).filter(Boolean)
+  const clean = lines.filter(l => l.length <= 120 && !META_RE.test(l))
+  return clean.at(-1) ?? lines.at(-1) ?? text.trim()
 }
 
 export function parsePit(text: string, validPits: number[]): number | null {

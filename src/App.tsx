@@ -5,6 +5,7 @@ import { SettingsModal } from './components/SettingsModal'
 import { TrashTalkBubble } from './components/TrashTalkBubble'
 import { HintPanel } from './components/HintPanel'
 import { RulesModal } from './components/RulesModal'
+import { ReviewModal } from './components/ReviewModal'
 
 function PhaseBanner({ phase }: { phase: string }) {
   if (phase === 'racing') return (
@@ -28,11 +29,15 @@ function PhaseBanner({ phase }: { phase: string }) {
 export default function App() {
   const {
     phase, racing, turn, result, isAITurn, isThinking,
-    paused, transitioning, trashTalk,
-    startGame, tick, aiMove, loadApiKey, setPaused, newGame,
+    paused, transitioning, trashTalk, tbAnim, pitHistory, difficulty, moveHistory,
+    startGame, tick, tickTbAnim, aiMove, loadApiKey, setPaused, newGame,
   } = useGameStore()
+
+  const animFrame = tbAnim?.frames[tbAnim.frame]
+  const seedsInHand = animFrame?.seedsInHand ?? null
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [rulesOpen, setRulesOpen] = useState(false)
+  const [reviewOpen, setReviewOpen] = useState(false)
 
   useEffect(() => { loadApiKey() }, [])
 
@@ -51,10 +56,16 @@ export default function App() {
   }, [shouldTick])
 
   useEffect(() => {
-    if (!isAITurn || paused) return
+    if (!isAITurn || paused || tbAnim) return
     const id = setTimeout(aiMove, 600)
     return () => clearTimeout(id)
-  }, [isAITurn, paused])
+  }, [isAITurn, paused, tbAnim])
+
+  useEffect(() => {
+    if (!tbAnim) return
+    const id = setInterval(tickTbAnim, 130)
+    return () => clearInterval(id)
+  }, [!!tbAnim])
 
   const board = turn?.board ?? racing?.board
 
@@ -129,7 +140,14 @@ export default function App() {
       {/* Header */}
       <div className="w-full max-w-2xl flex items-center justify-between pt-2">
         <span className="text-amber-400 font-black text-xl tracking-widest">MAK KHUM</span>
-        <PhaseBanner phase={phase} />
+        <div className="flex items-center gap-2">
+          <PhaseBanner phase={phase} />
+          {phase === 'turnbased' && (
+            <span className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide ${difficulty === 'easy' ? 'bg-green-800 text-green-300' : difficulty === 'medium' ? 'bg-yellow-800 text-yellow-300' : 'bg-red-900 text-red-300'}`}>
+              {difficulty}
+            </span>
+          )}
+        </div>
         <div className="flex gap-2">
           {phase !== 'gameover' && (
             <button
@@ -157,11 +175,20 @@ export default function App() {
       {/* AI Card */}
       <div className="w-full max-w-2xl bg-orange-950/70 border border-orange-800/50 rounded-xl px-4 py-3 flex items-center gap-4">
         <div className="text-4xl">🦊</div>
-        <div className="flex flex-col">
+        <div className="flex flex-col gap-1">
           <span className="text-orange-300 font-bold text-sm uppercase tracking-wide">AI Opponent</span>
           <span className="text-orange-200 font-black text-2xl">{board?.[15] ?? 0} <span className="text-orange-500 text-sm font-normal">seeds in store</span></span>
-          {isThinking && (
-            <span className="text-orange-400 text-xs animate-pulse">thinking...</span>
+          {isThinking && <span className="text-orange-400 text-xs animate-pulse">thinking...</span>}
+          {tbAnim && turn?.currentTurn === 'ai' && seedsInHand !== null && (
+            <span className="text-yellow-300 text-xs font-bold">{seedsInHand} in hand</span>
+          )}
+          {phase === 'turnbased' && pitHistory.ai.length > 0 && (
+            <div className="flex gap-1 flex-wrap items-center">
+              <span className="text-orange-600 text-[10px]">picks:</span>
+              {pitHistory.ai.slice(-6).map((p, i) => (
+                <span key={i} className="px-1.5 py-0.5 bg-orange-900 border border-orange-700 rounded text-orange-300 text-[10px] font-mono">{p}</span>
+              ))}
+            </div>
           )}
         </div>
         <div className="ml-auto max-w-xs">
@@ -175,9 +202,20 @@ export default function App() {
       {/* Player Card */}
       <div className="w-full max-w-2xl bg-blue-950/70 border border-blue-800/50 rounded-xl px-4 py-3 flex items-center gap-4">
         <div className="text-4xl">🧑</div>
-        <div className="flex flex-col">
+        <div className="flex flex-col gap-1">
           <span className="text-blue-300 font-bold text-sm uppercase tracking-wide">You</span>
           <span className="text-blue-200 font-black text-2xl">{board?.[7] ?? 0} <span className="text-blue-500 text-sm font-normal">seeds in store</span></span>
+          {tbAnim && turn?.currentTurn === 'player' && seedsInHand !== null && (
+            <span className="text-yellow-300 text-xs font-bold">{seedsInHand} in hand</span>
+          )}
+          {phase === 'turnbased' && pitHistory.player.length > 0 && (
+            <div className="flex gap-1 flex-wrap items-center">
+              <span className="text-blue-600 text-[10px]">picks:</span>
+              {pitHistory.player.slice(-6).map((p, i) => (
+                <span key={i} className="px-1.5 py-0.5 bg-blue-900 border border-blue-700 rounded text-blue-300 text-[10px] font-mono">{p}</span>
+              ))}
+            </div>
+          )}
         </div>
         <div className="ml-auto">
           {phase === 'turnbased' && <HintPanel />}
@@ -264,12 +302,18 @@ export default function App() {
               </p>
             )}
 
-            <div className="flex gap-3 mt-2">
+            <div className="flex gap-3 mt-2 flex-wrap justify-center">
               <button
                 onClick={startGame}
                 className="px-6 py-2 bg-amber-500 hover:bg-amber-400 text-amber-950 font-black rounded-xl transition-colors"
               >
                 Play Again
+              </button>
+              <button
+                onClick={() => setReviewOpen(true)}
+                className="px-6 py-2 bg-blue-700 hover:bg-blue-600 text-blue-100 font-bold rounded-xl transition-colors border border-blue-600"
+              >
+                📊 Review
               </button>
               <button
                 onClick={newGame}
@@ -284,6 +328,7 @@ export default function App() {
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
+      {reviewOpen && <ReviewModal moves={moveHistory} onClose={() => setReviewOpen(false)} />}
     </div>
   )
 }

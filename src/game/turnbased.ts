@@ -1,5 +1,5 @@
 import type { PlayerKey, GameEvent } from './types'
-import { sow } from './sow'
+import { sow, sowSteps } from './sow'
 import {
   oppositePit,
   getValidPits,
@@ -9,6 +9,28 @@ import {
   AI_PITS,
   isStore,
 } from './board'
+
+export interface AnimFrame { board: number[]; activePit: number; seedsInHand: number }
+
+export function computeTurnFrames(state: TurnState, pit: number): AnimFrame[] {
+  const frames: AnimFrame[] = [{ board: state.board, activePit: pit, seedsInHand: state.board[pit] }]
+  const actor = state.currentTurn
+  let board = state.board
+  let currentPit = pit
+  while (true) {
+    const steps = sowSteps(board, currentPit, actor)
+    if (steps.length === 0) break
+    frames.push(...steps)
+    const last = steps[steps.length - 1]
+    if (!isStore(last.activePit) && last.board[last.activePit] > 1) {
+      board = last.board
+      currentPit = last.activePit
+    } else {
+      break
+    }
+  }
+  return frames
+}
 
 export interface TurnState {
   board: number[]

@@ -3,6 +3,14 @@ export type PlayerKey = 'player' | 'ai'
 export type PlayerStatus = 'waiting' | 'selecting' | 'moving' | 'paused' | 'dead' | 'won' | 'lost'
 export type GameResult = 'player' | 'ai' | 'draw'
 
+export interface MoveRecord {
+  actor: PlayerKey
+  pit: number
+  boardBefore: number[]
+  validPits: number[]
+  storeGain: number
+}
+
 export interface GameEvent {
   type: GameEventType
   pit?: number

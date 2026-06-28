@@ -32,3 +32,25 @@ export function sow(
 
   return { board: newBoard, lastPit: currentPit }
 }
+
+export function sowSteps(
+  board: number[],
+  startPit: number,
+  actor: PlayerKey
+): { board: number[]; activePit: number; seedsInHand: number }[] {
+  const frames: { board: number[]; activePit: number; seedsInHand: number }[] = []
+  const b = [...board]
+  let seeds = b[startPit]
+  b[startPit] = 0
+  let currentPit = startPit
+  const skipPit = actor === 'player' ? AI_STORE : PLAYER_STORE
+  while (seeds > 0) {
+    currentPit = (currentPit + 1) % 16
+    if (currentPit !== skipPit) {
+      b[currentPit]++
+      seeds--
+      frames.push({ board: [...b], activePit: currentPit, seedsInHand: seeds })
+    }
+  }
+  return frames
+}

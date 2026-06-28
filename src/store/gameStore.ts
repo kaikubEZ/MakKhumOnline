@@ -1,15 +1,42 @@
 import { create } from 'zustand'
-import { createInitialBoard, getValidPits } from '../game/board'
+import { createInitialBoard, getValidPits, oppositePit, AI_STORE, isStore as isBoardStore } from '../game/board'
 import { selectStartPit, racingTick } from '../game/racing'
 import type { RacingState } from '../game/racing'
-import { executeMove } from '../game/turnbased'
-import type { TurnState } from '../game/turnbased'
+import { executeMove, computeTurnFrames } from '../game/turnbased'
+import type { TurnState, AnimFrame } from '../game/turnbased'
 import { sweepSeeds, determineWinner } from '../game/endgame'
-import type { GameResult, GameEventType } from '../game/types'
+import type { GameResult, GameEventType, MoveRecord } from '../game/types'
 import { askAI } from '../ai/openrouter'
-import { movePrompt, hintPrompt, trashTalkPrompt, parsePit } from '../ai/prompts'
+import { movePrompt, hintPrompt, trashTalkPrompt, parsePit, extractTrashTalk } from '../ai/prompts'
+import { sow } from '../game/sow'
+
+type Difficulty = 'easy' | 'medium' | 'hard'
+const DIFFICULTY_KEY = 'makkum_difficulty'
+
+function scorePit(board: number[], pit: number): number {
+  const { board: b, lastPit } = sow(board, pit, 'ai')
+  if (lastPit === AI_STORE) return 10                                          // free turn
+  const opp = oppositePit(lastPit)
+  if (!isBoardStore(lastPit) && b[lastPit] === 1 && b[opp] > 0 && lastPit >= 8 && lastPit <= 14)
+    return 8 + b[opp]                                                          // capture
+  if (!isBoardStore(lastPit) && b[lastPit] > 1) return 3                      // chain
+  return 0.1 * board[pit]                                                      // tiebreak by size
+}
+
+function mediumPick(board: number[], valid: number[]): number {
+  return valid.reduce((best, p) => scorePit(board, p) >= scorePit(board, best) ? p : best, valid[0])
+}
+
+function hardPrompt(board: number[], valid: number[]): string {
+  return (
+    movePrompt(board, valid) +
+    ` Prioritize: 1) landing in your store (free turn), 2) capturing opposite seeds (Kin), ` +
+    `3) creating chains. Minimize leaving seeds in pits the player can capture.`
+  )
+}
 
 const API_KEY_STORAGE = 'makkum_api_key'
+const ENV_API_KEY = (import.meta.env.VITE_OPENROUTER_API_KEY as string) || null
 const HINT_FALLBACK = 'Hint unavailable. Look for a move that reaches your Store or captures opposite seeds.'
 const TRASH_TALK_COUNT = 10
 
@@ -48,6 +75,7 @@ interface GameStore {
   result: GameResult | null
   isAITurn: boolean
   apiKey: string | null
+  userApiKey: string | null  // key explicitly set by user in localStorage
   isThinking: boolean
   hint: string | null
   trashTalk: string | null
@@ -55,13 +83,19 @@ interface GameStore {
   paused: boolean
   transitioning: boolean
   eventPopup: { label: string; key: number; actor: string } | null
+  tbAnim: { frames: AnimFrame[]; frame: number; pending: TurnState; trashTalk?: string | null } | null
+  pitHistory: { player: number[]; ai: number[] }
+  difficulty: Difficulty
+  moveHistory: MoveRecord[]
 
   loadApiKey(): void
   setTransitioning(v: boolean): void
   setApiKey(key: string | null): void
+  setDifficulty(d: Difficulty): void
   startGame(): void
   selectRacingPit(pit: number): void
   tick(): void
+  tickTbAnim(): void
   playerMove(pit: number): void
   aiMove(): Promise<void>
   getHint(): Promise<void>
@@ -77,6 +111,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   result: null,
   isAITurn: false,
   apiKey: null,
+  userApiKey: null,
   isThinking: false,
   hint: null,
   trashTalk: null,
@@ -84,10 +119,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
   paused: false,
   transitioning: false,
   eventPopup: null,
+  tbAnim: null,
+  pitHistory: { player: [], ai: [] },
+  moveHistory: [],
+  difficulty: (localStorage.getItem(DIFFICULTY_KEY) as Difficulty) ?? 'medium',
 
   loadApiKey() {
-    const key = localStorage.getItem(API_KEY_STORAGE)
-    set({ apiKey: key })
+    const userKey = localStorage.getItem(API_KEY_STORAGE)
+    const diff = (localStorage.getItem(DIFFICULTY_KEY) as Difficulty) ?? 'medium'
+    set({ userApiKey: userKey, apiKey: userKey || ENV_API_KEY, difficulty: diff })
+  },
+
+  setDifficulty(d: Difficulty) {
+    localStorage.setItem(DIFFICULTY_KEY, d)
+    set({ difficulty: d })
   },
 
   setApiKey(key: string | null) {
@@ -96,13 +141,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
     } else {
       localStorage.removeItem(API_KEY_STORAGE)
     }
-    set({ apiKey: key })
+    set({ userApiKey: key, apiKey: key || ENV_API_KEY })
   },
 
   setTransitioning(v: boolean) { set({ transitioning: v }) },
 
   startGame() {
-    set({ phase: 'racing', racing: initRacing(), turn: null, result: null, isAITurn: false, hint: null, trashTalk: null, paused: false, transitioning: false, eventPopup: null })
+    set({ phase: 'racing', racing: initRacing(), turn: null, result: null, isAITurn: false, hint: null, trashTalk: null, paused: false, transitioning: false, eventPopup: null, tbAnim: null, pitHistory: { player: [], ai: [] }, moveHistory: [] })
     // fire-and-forget: pre-generate trash talk if key available
     get().loadTrashTalk()
   },
@@ -111,14 +156,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const { apiKey } = get()
     if (!apiKey) return
     const lines: string[] = []
-    // Generate in parallel — 10 calls at once
     const results = await Promise.allSettled(
       Array.from({ length: TRASH_TALK_COUNT }, () =>
-        askAI(apiKey, trashTalkPrompt())
+        askAI(apiKey, trashTalkPrompt(), 60)
       )
     )
     for (const r of results) {
-      if (r.status === 'fulfilled' && r.value) lines.push(r.value.trim())
+      if (r.status === 'fulfilled' && r.value) {
+        const line = extractTrashTalk(r.value)
+        if (line) lines.push(line)
+      }
     }
     set({ trashTalkLines: lines })
   },
@@ -171,37 +218,51 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
   },
 
-  playerMove(pit: number) {
-    const { turn, isThinking } = get()
-    if (!turn || turn.currentTurn !== 'player' || isThinking) return
-
-    set({ hint: null, trashTalk: null })
-    const prevLen = turn.events.length
-    const next = executeMove(turn, pit)
-
-    // Show popup for move outcome
-    const newEvents = next.events.slice(prevLen)
-    for (let i = newEvents.length - 1; i >= 0; i--) {
-      const label = eventToLabel(newEvents[i].type)
-      if (label) {
-        const key = ++popupSeq
-        set({ eventPopup: { label, key, actor: newEvents[i].actor ?? 'player' } })
-        setTimeout(() => set(s => s.eventPopup?.key === key ? { eventPopup: null } : {}), 1400)
-        break
+  tickTbAnim() {
+    const { tbAnim, turn } = get()
+    if (!tbAnim) return
+    const next = tbAnim.frame + 1
+    if (next >= tbAnim.frames.length) {
+      const { pending } = tbAnim
+      const prevLen = turn?.events.length ?? 0
+      set({ tbAnim: null })
+      const newEvents = pending.events.slice(prevLen)
+      for (let i = newEvents.length - 1; i >= 0; i--) {
+        const label = eventToLabel(newEvents[i].type)
+        if (label) {
+          const key = ++popupSeq
+          set({ eventPopup: { label, key, actor: newEvents[i].actor ?? 'player' } })
+          setTimeout(() => set(s => s.eventPopup?.key === key ? { eventPopup: null } : {}), 1400)
+          break
+        }
       }
-    }
-
-    if (next.phase === 'gameover') {
-      const finalBoard = sweepSeeds(next.board)
-      set({ phase: 'gameover', turn: { ...next, board: finalBoard }, result: determineWinner(finalBoard), isAITurn: false })
+      if (pending.phase === 'gameover') {
+        const finalBoard = sweepSeeds(pending.board)
+        set({ phase: 'gameover', turn: { ...pending, board: finalBoard }, result: determineWinner(finalBoard), isAITurn: false, isThinking: false, trashTalk: tbAnim.trashTalk ?? null })
+      } else {
+        set({ turn: pending, isAITurn: pending.currentTurn === 'ai', isThinking: false, trashTalk: tbAnim.trashTalk ?? null })
+      }
     } else {
-      set({ turn: next, isAITurn: next.currentTurn === 'ai' })
+      set({ tbAnim: { ...tbAnim, frame: next } })
     }
   },
 
+  playerMove(pit: number) {
+    const { turn, isThinking, tbAnim } = get()
+    if (!turn || turn.currentTurn !== 'player' || isThinking || tbAnim) return
+
+    set({ hint: null, trashTalk: null })
+    const { pitHistory, moveHistory } = get()
+    const pending = executeMove(turn, pit)
+    const frames = computeTurnFrames(turn, pit)
+    const storeGain = pending.board[7] - turn.board[7]
+    const rec: MoveRecord = { actor: 'player', pit, boardBefore: turn.board, validPits: getValidPits(turn.board, 'player'), storeGain }
+    set({ pitHistory: { ...pitHistory, player: [...pitHistory.player, pit] }, moveHistory: [...moveHistory, rec], tbAnim: { frames, frame: 0, pending } })
+  },
+
   async aiMove() {
-    const { turn, apiKey, trashTalkLines, paused } = get()
-    if (!turn || turn.currentTurn !== 'ai' || paused) return
+    const { turn, apiKey, trashTalkLines, paused, tbAnim, difficulty } = get()
+    if (!turn || turn.currentTurn !== 'ai' || paused || tbAnim) return
 
     const valid = getValidPits(turn.board, 'ai')
     if (valid.length === 0) return
@@ -211,49 +272,44 @@ export const useGameStore = create<GameStore>((set, get) => ({
     let chosenPit: number
     let usedFallback = false
 
-    if (apiKey) {
-      const response = await askAI(apiKey, movePrompt(turn.board, valid))
-      const parsed = response ? parsePit(response, valid) : null
-      if (parsed !== null) {
-        chosenPit = parsed
-      } else {
-        chosenPit = pick(valid)
-        usedFallback = true
-      }
-    } else {
+    if (difficulty === 'easy') {
       chosenPit = pick(valid)
-    }
-
-    const next = executeMove(turn, chosenPit)
-
-    // Show popup for AI move outcome
-    const newTurnEvents = next.events.slice(turn.events.length)
-    for (let i = newTurnEvents.length - 1; i >= 0; i--) {
-      const label = eventToLabel(newTurnEvents[i].type)
-      if (label) {
-        const key = ++popupSeq
-        set({ eventPopup: { label, key, actor: newTurnEvents[i].actor ?? 'ai' } })
-        setTimeout(() => set(s => s.eventPopup?.key === key ? { eventPopup: null } : {}), 1400)
-        break
+    } else if (difficulty === 'medium') {
+      chosenPit = mediumPick(turn.board, valid)
+    } else {
+      // hard — use API with strategic prompt
+      if (apiKey) {
+        const response = await askAI(apiKey, hardPrompt(turn.board, valid))
+        const parsed = response ? parsePit(response, valid) : null
+        if (parsed !== null) {
+          chosenPit = parsed
+        } else {
+          chosenPit = mediumPick(turn.board, valid)
+          usedFallback = true
+        }
+      } else {
+        chosenPit = mediumPick(turn.board, valid)
       }
     }
 
-    // Trash talk: 70% chance, only if pre-generated lines exist
+    const pending = executeMove(turn, chosenPit)
+    const frames = computeTurnFrames(turn, chosenPit)
+
     let trashTalk: string | null = null
     if (trashTalkLines.length > 0 && Math.random() < 0.7) {
       trashTalk = pick(trashTalkLines)
     }
 
-    if (next.phase === 'gameover') {
-      const finalBoard = sweepSeeds(next.board)
-      set({ phase: 'gameover', turn: { ...next, board: finalBoard }, result: determineWinner(finalBoard), isAITurn: false, isThinking: false, trashTalk })
-    } else if (next.currentTurn === 'ai') {
-      // Free turn — recurse after delay
-      set({ turn: next, isThinking: false, trashTalk })
-      setTimeout(() => get().aiMove(), 600)
-    } else {
-      set({ turn: next, isAITurn: false, isThinking: false, trashTalk, hint: usedFallback ? 'AI used fallback move.' : null })
-    }
+    const { pitHistory, moveHistory } = get()
+    const storeGain = pending.board[15] - turn.board[15]
+    const rec: MoveRecord = { actor: 'ai', pit: chosenPit, boardBefore: turn.board, validPits: valid, storeGain }
+    set({
+      isThinking: false,
+      pitHistory: { ...pitHistory, ai: [...pitHistory.ai, chosenPit] },
+      moveHistory: [...moveHistory, rec],
+      tbAnim: { frames, frame: 0, pending, trashTalk },
+      hint: usedFallback ? 'AI used fallback move.' : null,
+    })
   },
 
   async getHint() {
@@ -278,6 +334,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   newGame() {
-    set({ phase: 'idle', racing: null, turn: null, result: null, isAITurn: false, hint: null, trashTalk: null, trashTalkLines: [], isThinking: false, paused: false, transitioning: false, eventPopup: null })
+    set({ phase: 'idle', racing: null, turn: null, result: null, isAITurn: false, hint: null, trashTalk: null, trashTalkLines: [], isThinking: false, paused: false, transitioning: false, eventPopup: null, tbAnim: null, pitHistory: { player: [], ai: [] }, moveHistory: [] })
   },
 }))
