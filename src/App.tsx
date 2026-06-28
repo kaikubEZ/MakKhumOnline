@@ -6,6 +6,9 @@ import { TrashTalkBubble } from './components/TrashTalkBubble'
 import { HintPanel } from './components/HintPanel'
 import { RulesModal } from './components/RulesModal'
 import { ReviewModal } from './components/ReviewModal'
+import { LobbyScreen } from './components/LobbyScreen'
+import { WaitingRoom } from './components/WaitingRoom'
+import { connect, onMessage, disconnect, send } from './multiplayer/socket'
 
 function PhaseBanner({ phase }: { phase: string }) {
   if (phase === 'racing') return (
@@ -30,7 +33,9 @@ export default function App() {
   const {
     phase, racing, turn, result, isAITurn, isThinking,
     paused, transitioning, trashTalk, tbAnim, pitHistory, difficulty, moveHistory,
+    mode,
     startGame, tick, tickTbAnim, aiMove, loadApiKey, setPaused, newGame,
+    startOnlineGame, applyOpponentMove, setSocketSend, leaveOnlineGame,
   } = useGameStore()
 
   const animFrame = tbAnim?.frames[tbAnim.frame]
@@ -38,8 +43,41 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [rulesOpen, setRulesOpen] = useState(false)
   const [reviewOpen, setReviewOpen] = useState(false)
+  const [screen, setScreen] = useState<'menu' | 'lobby' | 'waiting' | 'game'>('menu')
+  const [waitingCode, setWaitingCode] = useState('')
+  const [lobbyError, setLobbyError] = useState<string | null>(null)
 
   useEffect(() => { loadApiKey() }, [])
+
+  useEffect(() => {
+    if (screen !== 'game') return
+    const unsub = onMessage((msg) => {
+      if (msg.type === 'game_start') {
+        startOnlineGame(msg.yourRole)
+        setScreen('game')
+      } else if (msg.type === 'opponent_move') {
+        applyOpponentMove(msg.pit)
+      } else if (msg.type === 'opponent_disconnected') {
+        leaveOnlineGame()
+        disconnect()
+        setScreen('menu')
+        alert('Opponent disconnected.')
+      }
+    })
+    setSocketSend(send)
+    return () => { unsub(); setSocketSend(null) }
+  }, [screen])
+
+  useEffect(() => {
+    if (screen !== 'waiting') return
+    const unsub = onMessage((msg) => {
+      if (msg.type === 'game_start') {
+        startOnlineGame(msg.yourRole)
+        setScreen('game')
+      }
+    })
+    return unsub
+  }, [screen])
 
   const shouldTick =
     phase === 'racing' &&
@@ -55,11 +93,40 @@ export default function App() {
     return () => clearInterval(id)
   }, [shouldTick])
 
+  async function handleCreateRoom() {
+    setLobbyError(null)
+    try {
+      const res = await fetch('http://localhost:3001/rooms', { method: 'POST' })
+      const { code } = await res.json() as { code: string }
+      await connect(code)
+      setWaitingCode(code)
+      setScreen('waiting')
+    } catch {
+      setLobbyError('Failed to create room. Is the server running?')
+    }
+  }
+
+  async function handleJoinRoom(code: string) {
+    setLobbyError(null)
+    try {
+      await connect(code)
+      setScreen('waiting')
+    } catch {
+      setLobbyError('Could not connect to that room. Check the code and try again.')
+    }
+  }
+
+  function handleCancelWaiting() {
+    disconnect()
+    setScreen('lobby')
+    setWaitingCode('')
+  }
+
   useEffect(() => {
-    if (!isAITurn || paused || tbAnim) return
+    if (!isAITurn || paused || tbAnim || mode === 'online') return
     const id = setTimeout(aiMove, 600)
     return () => clearTimeout(id)
-  }, [isAITurn, paused, tbAnim])
+  }, [isAITurn, paused, tbAnim, mode])
 
   useEffect(() => {
     if (!tbAnim) return
@@ -85,6 +152,21 @@ export default function App() {
     }
     return ''
   })()
+
+  if (screen === 'lobby') {
+    return (
+      <LobbyScreen
+        onCreateRoom={handleCreateRoom}
+        onJoinRoom={handleJoinRoom}
+        onBack={() => setScreen('menu')}
+        error={lobbyError}
+      />
+    )
+  }
+
+  if (screen === 'waiting') {
+    return <WaitingRoom roomCode={waitingCode} onCancel={handleCancelWaiting} />
+  }
 
   // Main Menu
   if (phase === 'idle') {
@@ -126,6 +208,12 @@ export default function App() {
             className="px-6 py-3 bg-amber-900 hover:bg-amber-800 text-amber-200 font-semibold rounded-xl transition-colors border border-amber-700"
           >
             ⚙ Settings
+          </button>
+          <button
+            onClick={() => setScreen('lobby')}
+            className="px-6 py-3 bg-blue-900 hover:bg-blue-800 text-blue-200 font-semibold rounded-xl transition-colors border border-blue-700"
+          >
+            🌐 Multiplayer
           </button>
         </div>
 
@@ -281,7 +369,7 @@ export default function App() {
               {result === 'player' ? '🏆' : result === 'ai' ? '🦊' : '🤝'}
             </div>
             <h2 className="text-4xl font-black text-amber-200">
-              {result === 'player' ? 'You Win!' : result === 'ai' ? 'AI Wins!' : "It's a Draw!"}
+              {result === 'player' ? 'You Win!' : result === 'ai' ? (mode === 'online' ? 'Opponent Wins!' : 'AI Wins!') : "It's a Draw!"}
             </h2>
 
             <div className="flex gap-10 text-center">

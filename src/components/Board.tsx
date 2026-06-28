@@ -53,17 +53,19 @@ function Pit({ seeds, onClick, state, isStore, label, index }: {
 }
 
 export function Board() {
-  const { phase, racing, turn, isAITurn, tbAnim, eventPopup, selectRacingPit, playerMove } = useGameStore()
+  const { phase, racing, turn, isAITurn, tbAnim, eventPopup, selectRacingPit, playerMove, player2Move, mode, myRole } = useGameStore()
+  const flipped = mode === 'online' && myRole === 'player2'
 
   const animFrame = tbAnim?.frames[tbAnim.frame]
   const board = animFrame?.board ?? turn?.board ?? racing?.board ?? Array(16).fill(0)
 
   const clickable = new Set<number>()
-  if (phase === 'racing' && racing) {
+  if (phase === 'racing' && racing && !flipped) {
     const s = racing.player.status
     if (s === 'selecting' || s === 'paused') getValidPits(board, 'player').forEach(p => clickable.add(p))
-  } else if (phase === 'turnbased' && turn && !isAITurn && !tbAnim) {
-    getValidPits(board, 'player').forEach(p => clickable.add(p))
+  } else if (phase === 'turnbased' && turn && !tbAnim) {
+    if (!flipped && !isAITurn) getValidPits(board, 'player').forEach(p => clickable.add(p))
+    if (flipped && isAITurn) getValidPits(board, 'ai').forEach(p => clickable.add(p))
   }
 
   // Active pits (currently being sown)
@@ -81,7 +83,10 @@ export function Board() {
 
   function onPitClick(pit: number) {
     if (phase === 'racing') selectRacingPit(pit)
-    else if (phase === 'turnbased') playerMove(pit)
+    else if (phase === 'turnbased') {
+      if (flipped) player2Move(pit)
+      else playerMove(pit)
+    }
   }
 
   const aiPits = [14, 13, 12, 11, 10, 9, 8]
@@ -109,20 +114,24 @@ export function Board() {
 
       {/* Board */}
       <div className="bg-amber-800 border-4 border-amber-900 rounded-2xl p-4 shadow-2xl flex gap-3 items-center">
-        {/* AI Store (left) */}
-        <Pit seeds={board[15]} isStore label="AI" />
+        {/* Left store */}
+        <Pit
+          seeds={flipped ? board[7] : board[15]}
+          isStore
+          label={flipped ? 'OPP' : 'AI'}
+        />
 
         {/* Pit grid */}
         <div className="flex flex-col gap-2">
-          {/* AI row — pit 14 on left mirrors player row */}
+          {/* Top row */}
           <div className="flex gap-2">
-            {aiPits.map(i => (
+            {(flipped ? [6,5,4,3,2,1,0] : aiPits).map(i => (
               <Pit key={i} seeds={board[i]} state={pitState(i)} index={i} />
             ))}
           </div>
-          {/* Player row */}
+          {/* Bottom row (clickable) */}
           <div className="flex gap-2">
-            {playerPits.map(i => (
+            {(flipped ? [8,9,10,11,12,13,14] : playerPits).map(i => (
               <Pit
                 key={i}
                 seeds={board[i]}
@@ -134,8 +143,12 @@ export function Board() {
           </div>
         </div>
 
-        {/* Player Store (right) */}
-        <Pit seeds={board[7]} isStore label="YOU" />
+        {/* Right store */}
+        <Pit
+          seeds={flipped ? board[15] : board[7]}
+          isStore
+          label="YOU"
+        />
       </div>
 
       {/* Racing status strip */}
