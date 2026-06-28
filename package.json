@@ -8,6 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
+    "server": "cd server && npm start",
+    "server:dev": "cd server && npm run dev",
     "test": "vitest"
   },
   "dependencies": {

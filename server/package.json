@@ -1,0 +1,19 @@
+{
+  "name": "makkum-server",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node --import tsx/esm index.ts",
+    "dev": "tsx watch index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "~6.0.2",
+    "vitest": "^4.1.9"
+  }
+}
