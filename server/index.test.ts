@@ -98,3 +98,54 @@ describe('WebSocket room flow', () => {
     ws.close()
   })
 })
+
+describe('message validation & racing relay', () => {
+  async function pair() {
+    const res = await fetch(`http://localhost:${port}/rooms`, { method: 'POST' })
+    const { code } = await res.json() as { code: string }
+    const p1 = await wsConnect(code)
+    const p2 = await wsConnect(code)
+    await nextMessage(p1.messages) // game_start
+    await nextMessage(p2.messages) // game_start
+    return { p1, p2 }
+  }
+
+  it('relays racing_select from a player to the opponent', async () => {
+    const { p1, p2 } = await pair()
+    p2.ws.send(JSON.stringify({ type: 'racing_select', pit: 10 })) // p2 owns 8–14
+    const relayed = await nextMessage(p1.messages)
+    expect(relayed).toEqual({ type: 'opponent_racing_select', pit: 10 })
+    p1.ws.close(); p2.ws.close()
+  })
+
+  it('relays racing_state from the host (player1) to the guest', async () => {
+    const { p1, p2 } = await pair()
+    p1.ws.send(JSON.stringify({ type: 'racing_state', state: { board: [1, 2, 3] } }))
+    const relayed = await nextMessage(p2.messages)
+    expect(relayed).toEqual({ type: 'racing_state', state: { board: [1, 2, 3] } })
+    p1.ws.close(); p2.ws.close()
+  })
+
+  it('drops a move targeting the opponent\'s pits', async () => {
+    const { p1, p2 } = await pair()
+    p1.ws.send(JSON.stringify({ type: 'move', pit: 10 })) // 10 is player2's pit
+    await expect(nextMessage(p2.messages, 150)).rejects.toThrow()
+    p1.ws.close(); p2.ws.close()
+  })
+
+  it('ignores racing_state from the guest (only host may simulate)', async () => {
+    const { p1, p2 } = await pair()
+    p2.ws.send(JSON.stringify({ type: 'racing_state', state: {} }))
+    await expect(nextMessage(p1.messages, 150)).rejects.toThrow()
+    p1.ws.close(); p2.ws.close()
+  })
+
+  it('survives a malformed frame and keeps relaying afterwards', async () => {
+    const { p1, p2 } = await pair()
+    p1.ws.send('not json at all')
+    p1.ws.send(JSON.stringify({ type: 'move', pit: 2 }))
+    const relayed = await nextMessage(p2.messages)
+    expect(relayed).toEqual({ type: 'opponent_move', pit: 2 })
+    p1.ws.close(); p2.ws.close()
+  })
+})
