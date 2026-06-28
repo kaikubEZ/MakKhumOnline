@@ -197,8 +197,9 @@ describe('racingTick: store skipping', () => {
 // ─── racingTick: own store landing (pause) ───────────────────────────────────
 
 describe('racingTick: own store landing', () => {
-  it('player pauses when last seed lands in PLAYER_STORE', () => {
+  it('player pauses when last seed lands in PLAYER_STORE and own pits have seeds', () => {
     const board = new Array(16).fill(0)
+    board[3] = 4 // player still has seeds in pit 3 → can continue
     const state = makeState({
       board,
       player: makeHand({ status: 'moving', pit: 6, seeds: 1 }),
@@ -213,8 +214,9 @@ describe('racingTick: own store landing', () => {
     expect(next.board[PLAYER_STORE]).toBe(1)
   })
 
-  it('AI pauses when last seed lands in AI_STORE', () => {
+  it('AI pauses when last seed lands in AI_STORE and own pits have seeds', () => {
     const board = new Array(16).fill(0)
+    board[10] = 3 // AI still has seeds in pit 10 → can continue
     const state = makeState({
       board,
       player: makeHand({ status: 'dead', hasDied: true }),
@@ -229,8 +231,9 @@ describe('racingTick: own store landing', () => {
     expect(next.board[AI_STORE]).toBe(1)
   })
 
-  it('pause does not set hasDied', () => {
+  it('pause does not set hasDied when own pits have seeds', () => {
     const board = new Array(16).fill(0)
+    board[2] = 1
     const state = makeState({
       board,
       player: makeHand({ status: 'moving', pit: 6, seeds: 1 }),
@@ -238,6 +241,32 @@ describe('racingTick: own store landing', () => {
     })
     const next = racingTick(state)
     expect(next.player.hasDied).toBe(false)
+  })
+
+  it('player dies at store when no own pits have seeds (softlock fix)', () => {
+    const board = new Array(16).fill(0) // all playfield pits empty
+    const state = makeState({
+      board,
+      player: makeHand({ status: 'moving', pit: 6, seeds: 1 }),
+      ai: makeHand({ status: 'dead', hasDied: true }),
+    })
+    const next = racingTick(state)
+    expect(next.player.status).toBe('dead')
+    expect(next.player.hasDied).toBe(true)
+    expect(next.events.some(e => e.type === 'PLAYER_DIED' && e.actor === 'player')).toBe(true)
+  })
+
+  it('AI dies at store when no own pits have seeds (softlock fix)', () => {
+    const board = new Array(16).fill(0) // all playfield pits empty
+    const state = makeState({
+      board,
+      player: makeHand({ status: 'dead', hasDied: true }),
+      ai: makeHand({ status: 'moving', pit: 14, seeds: 1 }),
+    })
+    const next = racingTick(state)
+    expect(next.ai.status).toBe('dead')
+    expect(next.ai.hasDied).toBe(true)
+    expect(next.events.some(e => e.type === 'PLAYER_DIED' && e.actor === 'ai')).toBe(true)
   })
 })
 

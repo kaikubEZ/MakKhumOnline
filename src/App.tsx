@@ -4,29 +4,35 @@ import { Board } from './components/Board'
 import { SettingsModal } from './components/SettingsModal'
 import { TrashTalkBubble } from './components/TrashTalkBubble'
 import { HintPanel } from './components/HintPanel'
+import { RulesModal } from './components/RulesModal'
 
-function statusText(phase: string, racing: ReturnType<typeof useGameStore.getState>['racing'], isThinking: boolean, result: string | null): string {
-  if (phase === 'idle') return 'Press Start to play'
-  if (phase === 'racing') {
-    if (!racing) return ''
-    const s = racing.player.status
-    if (s === 'selecting') return 'Select a pit to start racing'
-    if (s === 'paused') return 'Landed in your store — pick a pit to continue'
-    if (s === 'dead') return 'You died! Waiting for AI...'
-    return 'Racing Phase — seeds moving...'
-  }
-  if (phase === 'turnbased') return isThinking ? 'AI is thinking...' : 'Your turn — click a pit'
-  if (phase === 'gameover') {
-    if (result === 'player') return '🏆 You win!'
-    if (result === 'ai') return 'AI wins!'
-    return "It's a draw!"
-  }
-  return ''
+function PhaseBanner({ phase }: { phase: string }) {
+  if (phase === 'racing') return (
+    <span className="px-4 py-1 bg-red-600 text-white font-black rounded-full text-sm tracking-widest uppercase">
+      Racing Phase
+    </span>
+  )
+  if (phase === 'turnbased') return (
+    <span className="px-4 py-1 bg-blue-600 text-white font-black rounded-full text-sm tracking-widest uppercase">
+      Turn-Based Phase
+    </span>
+  )
+  if (phase === 'gameover') return (
+    <span className="px-4 py-1 bg-amber-600 text-white font-black rounded-full text-sm tracking-widest uppercase">
+      Game Over
+    </span>
+  )
+  return null
 }
 
 export default function App() {
-  const { phase, racing, turn, result, isAITurn, isThinking, startGame, tick, aiMove, loadApiKey } = useGameStore()
+  const {
+    phase, racing, turn, result, isAITurn, isThinking,
+    paused, transitioning, trashTalk,
+    startGame, tick, aiMove, loadApiKey, setPaused, newGame,
+  } = useGameStore()
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [rulesOpen, setRulesOpen] = useState(false)
 
   useEffect(() => { loadApiKey() }, [])
 
@@ -34,7 +40,9 @@ export default function App() {
     phase === 'racing' &&
     !!racing &&
     racing.player.status !== 'selecting' &&
-    racing.phase !== 'complete'
+    racing.phase !== 'complete' &&
+    !transitioning &&
+    !paused
 
   useEffect(() => {
     if (!shouldTick) return
@@ -43,59 +51,239 @@ export default function App() {
   }, [shouldTick])
 
   useEffect(() => {
-    if (!isAITurn) return
+    if (!isAITurn || paused) return
     const id = setTimeout(aiMove, 600)
     return () => clearTimeout(id)
-  }, [isAITurn])
+  }, [isAITurn, paused])
 
   const board = turn?.board ?? racing?.board
 
+  const actionText = (() => {
+    if (phase === 'racing') {
+      if (!racing) return ''
+      const s = racing.player.status
+      if (s === 'selecting') return 'Select any non-empty pit to start racing'
+      if (s === 'paused') return 'Landed in your Store — pick a pit to continue'
+      if (s === 'dead') return 'You died! Waiting for AI to finish...'
+      return 'Seeds are racing — watch for chains and collisions!'
+    }
+    if (phase === 'turnbased') {
+      if (isThinking) return 'AI is thinking...'
+      if (isAITurn) return 'AI is choosing a move...'
+      return 'Your turn — click a highlighted pit'
+    }
+    return ''
+  })()
+
+  // Main Menu
+  if (phase === 'idle') {
+    return (
+      <div className="min-h-screen bg-amber-950 flex flex-col items-center justify-center gap-8 relative overflow-hidden">
+        {/* Decorative corner AI */}
+        <div className="absolute bottom-6 right-8 text-9xl opacity-20 select-none">🦊</div>
+
+        <div className="text-center">
+          <h1 className="text-7xl font-black text-amber-400 tracking-widest drop-shadow-lg">MAK KHUM</h1>
+          <p className="text-3xl text-amber-300 mt-1">หมากขุม</p>
+          <p className="text-amber-600 text-sm mt-2">Thai Traditional Mancala</p>
+        </div>
+
+        {/* Decorative pits preview */}
+        <div className="flex gap-2 opacity-40">
+          {[7,4,2,6,3,5,7].map((n, i) => (
+            <div key={i} className="w-12 h-12 rounded-full bg-amber-700 border-2 border-amber-600 flex items-center justify-center text-amber-200 font-bold">
+              {n}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-col gap-3 w-52">
+          <button
+            onClick={startGame}
+            className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-amber-950 font-black rounded-xl text-lg transition-colors shadow-lg"
+          >
+            🎮 Play Game
+          </button>
+          <button
+            onClick={() => setRulesOpen(true)}
+            className="px-6 py-3 bg-amber-900 hover:bg-amber-800 text-amber-200 font-semibold rounded-xl transition-colors border border-amber-700"
+          >
+            📖 Rules
+          </button>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="px-6 py-3 bg-amber-900 hover:bg-amber-800 text-amber-200 font-semibold rounded-xl transition-colors border border-amber-700"
+          >
+            ⚙ Settings
+          </button>
+        </div>
+
+        <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
+      </div>
+    )
+  }
+
   return (
-    <div className="relative min-h-screen flex flex-col items-center justify-center gap-8 p-8 bg-gray-50">
-      <button
-        onClick={() => setSettingsOpen(true)}
-        className="absolute top-4 right-4 px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-100"
-      >
-        ⚙ Settings
-      </button>
+    <div className="min-h-screen bg-amber-950 flex flex-col items-center gap-4 p-4 pb-8">
+      {/* Header */}
+      <div className="w-full max-w-2xl flex items-center justify-between pt-2">
+        <span className="text-amber-400 font-black text-xl tracking-widest">MAK KHUM</span>
+        <PhaseBanner phase={phase} />
+        <div className="flex gap-2">
+          {phase !== 'gameover' && (
+            <button
+              onClick={() => setPaused(!paused)}
+              className="px-3 py-1.5 text-sm text-amber-300 border border-amber-700 rounded-lg hover:bg-amber-800 transition-colors"
+            >
+              {paused ? '▶ Resume' : '⏸ Pause'}
+            </button>
+          )}
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="px-3 py-1.5 text-sm text-amber-300 border border-amber-700 rounded-lg hover:bg-amber-800 transition-colors"
+          >
+            ⚙
+          </button>
+          <button
+            onClick={() => setRulesOpen(true)}
+            className="px-3 py-1.5 text-sm text-amber-300 border border-amber-700 rounded-lg hover:bg-amber-800 transition-colors"
+          >
+            📖
+          </button>
+        </div>
+      </div>
 
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {/* AI Card */}
+      <div className="w-full max-w-2xl bg-orange-950/70 border border-orange-800/50 rounded-xl px-4 py-3 flex items-center gap-4">
+        <div className="text-4xl">🦊</div>
+        <div className="flex flex-col">
+          <span className="text-orange-300 font-bold text-sm uppercase tracking-wide">AI Opponent</span>
+          <span className="text-orange-200 font-black text-2xl">{board?.[15] ?? 0} <span className="text-orange-500 text-sm font-normal">seeds in store</span></span>
+          {isThinking && (
+            <span className="text-orange-400 text-xs animate-pulse">thinking...</span>
+          )}
+        </div>
+        <div className="ml-auto max-w-xs">
+          <TrashTalkBubble />
+        </div>
+      </div>
 
-      <h1 className="text-4xl font-bold text-gray-800">Mak Khum</h1>
+      {/* Board */}
+      <Board />
 
-      <p className="text-lg text-gray-600 h-7">
-        {statusText(phase, racing, isThinking, result)}
-      </p>
+      {/* Player Card */}
+      <div className="w-full max-w-2xl bg-blue-950/70 border border-blue-800/50 rounded-xl px-4 py-3 flex items-center gap-4">
+        <div className="text-4xl">🧑</div>
+        <div className="flex flex-col">
+          <span className="text-blue-300 font-bold text-sm uppercase tracking-wide">You</span>
+          <span className="text-blue-200 font-black text-2xl">{board?.[7] ?? 0} <span className="text-blue-500 text-sm font-normal">seeds in store</span></span>
+        </div>
+        <div className="ml-auto">
+          {phase === 'turnbased' && <HintPanel />}
+        </div>
+      </div>
 
-      {phase === 'turnbased' && <TrashTalkBubble />}
-
-      {phase !== 'idle' && <Board />}
-
-      {phase === 'turnbased' && <HintPanel />}
-
-      {board && (
-        <div className="text-sm text-gray-500">
-          Player store: {board[7]} | AI store: {board[15]}
+      {/* Action Helper */}
+      {actionText && (
+        <div className="w-full max-w-2xl bg-amber-900/40 border border-amber-800/30 rounded-lg px-4 py-2 text-amber-300 text-sm text-center italic">
+          {actionText}
         </div>
       )}
 
-      {phase === 'idle' && (
-        <button
-          onClick={startGame}
-          className="px-8 py-3 bg-blue-600 text-white rounded-xl text-lg font-semibold hover:bg-blue-700 transition-colors"
-        >
-          Start Game
-        </button>
+      {/* Pause Overlay */}
+      {paused && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-40">
+          <div className="bg-amber-900 border-2 border-amber-600 rounded-2xl p-8 flex flex-col gap-3 min-w-[200px] items-center shadow-2xl">
+            <h2 className="text-3xl font-black text-amber-200 mb-2">PAUSED</h2>
+            <button
+              onClick={() => setPaused(false)}
+              className="w-full px-6 py-2 bg-amber-500 hover:bg-amber-400 text-amber-950 font-black rounded-xl transition-colors"
+            >
+              ▶ Resume
+            </button>
+            <button
+              onClick={() => { setPaused(false); setSettingsOpen(true) }}
+              className="w-full px-6 py-2 bg-amber-800 hover:bg-amber-700 text-amber-200 font-semibold rounded-xl transition-colors border border-amber-700"
+            >
+              ⚙ Settings
+            </button>
+            <button
+              onClick={() => { setPaused(false); setRulesOpen(true) }}
+              className="w-full px-6 py-2 bg-amber-800 hover:bg-amber-700 text-amber-200 font-semibold rounded-xl transition-colors border border-amber-700"
+            >
+              📖 Rules
+            </button>
+            <button
+              onClick={() => { newGame() }}
+              className="w-full px-6 py-2 bg-amber-900 hover:bg-amber-800 text-amber-400 font-semibold rounded-xl transition-colors border border-amber-700"
+            >
+              ↩ Main Menu
+            </button>
+          </div>
+        </div>
       )}
 
-      {phase === 'gameover' && (
-        <button
-          onClick={startGame}
-          className="px-8 py-3 bg-blue-600 text-white rounded-xl text-lg font-semibold hover:bg-blue-700 transition-colors"
-        >
-          Play Again
-        </button>
+      {/* Phase Transition Overlay */}
+      {transitioning && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-40">
+          <div className="flex flex-col items-center gap-4">
+            <div className="text-6xl">⚔️</div>
+            <h2 className="text-4xl font-black text-blue-300 tracking-widest uppercase">Turn-Based Phase</h2>
+            <p className="text-amber-400 text-sm">Racing is over — strategy begins</p>
+          </div>
+        </div>
       )}
+
+      {/* Game Over Modal */}
+      {phase === 'gameover' && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-40">
+          <div className="bg-amber-900 border-2 border-amber-500 rounded-2xl p-8 flex flex-col gap-5 items-center shadow-2xl min-w-[280px]">
+            <div className="text-7xl">
+              {result === 'player' ? '🏆' : result === 'ai' ? '🦊' : '🤝'}
+            </div>
+            <h2 className="text-4xl font-black text-amber-200">
+              {result === 'player' ? 'You Win!' : result === 'ai' ? 'AI Wins!' : "It's a Draw!"}
+            </h2>
+
+            <div className="flex gap-10 text-center">
+              <div>
+                <div className="text-5xl font-black text-blue-300">{board?.[7] ?? 0}</div>
+                <div className="text-amber-400 text-sm">Your Seeds</div>
+              </div>
+              <div className="text-amber-600 text-2xl self-center">vs</div>
+              <div>
+                <div className="text-5xl font-black text-orange-300">{board?.[15] ?? 0}</div>
+                <div className="text-amber-400 text-sm">AI Seeds</div>
+              </div>
+            </div>
+
+            {trashTalk && (
+              <p className="text-orange-300 italic text-sm text-center max-w-xs">
+                🦊 &ldquo;{trashTalk}&rdquo;
+              </p>
+            )}
+
+            <div className="flex gap-3 mt-2">
+              <button
+                onClick={startGame}
+                className="px-6 py-2 bg-amber-500 hover:bg-amber-400 text-amber-950 font-black rounded-xl transition-colors"
+              >
+                Play Again
+              </button>
+              <button
+                onClick={newGame}
+                className="px-6 py-2 bg-amber-800 hover:bg-amber-700 text-amber-200 font-semibold rounded-xl transition-colors border border-amber-700"
+              >
+                Main Menu
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {rulesOpen && <RulesModal onClose={() => setRulesOpen(false)} />}
     </div>
   )
 }

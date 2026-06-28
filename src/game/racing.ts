@@ -33,6 +33,12 @@ function isOwnStore(pit: number, actor: PlayerKey): boolean {
   return actor === 'player' ? pit === PLAYER_STORE : pit === AI_STORE
 }
 
+// If actor has no seeds left in their own playfield pits, they can't continue after landing in store
+function hasOwnSeeds(board: number[], actor: PlayerKey): boolean {
+  const pits = actor === 'player' ? [0,1,2,3,4,5,6] : [8,9,10,11,12,13,14]
+  return pits.some(p => board[p] > 0)
+}
+
 function event(type: GameEventType, actor: PlayerKey, pit: number): GameEvent {
   return { type, actor, pit }
 }
@@ -97,6 +103,7 @@ export function racingTick(state: RacingState): RacingState {
     const nextPit = playerNext!
     // Both deposit their seed simultaneously
     board[nextPit] += 2
+    events.push(event('COLLISION_TRIGGERED', 'player', nextPit))
     // Snapshot pit count before any chaining so we can split fairly if both actors chain
     const depositedCount = board[nextPit]
 
@@ -104,8 +111,13 @@ export function racingTick(state: RacingState): RacingState {
     player = { ...player, pit: nextPit, seeds: player.seeds - 1 }
     if (player.seeds === 0) {
       if (isOwnStore(nextPit, 'player')) {
-        player = { ...player, status: 'paused' }
-        events.push(event('PLAYER_PAUSED', 'player', nextPit))
+        if (hasOwnSeeds(board, 'player')) {
+          player = { ...player, status: 'paused' }
+          events.push(event('PLAYER_PAUSED', 'player', nextPit))
+        } else {
+          player = { ...player, status: 'dead', hasDied: true }
+          events.push(event('PLAYER_DIED', 'player', nextPit))
+        }
       } else {
         // Collision immunity: no death even if pit was empty — chain instead.
         // If AI also runs out this tick, split the pit evenly so AI isn't left with 0.
@@ -121,8 +133,13 @@ export function racingTick(state: RacingState): RacingState {
     ai = { ...ai, pit: nextPit, seeds: ai.seeds - 1 }
     if (ai.seeds === 0) {
       if (isOwnStore(nextPit, 'ai')) {
-        ai = { ...ai, status: 'paused' }
-        events.push(event('PLAYER_PAUSED', 'ai', nextPit))
+        if (hasOwnSeeds(board, 'ai')) {
+          ai = { ...ai, status: 'paused' }
+          events.push(event('PLAYER_PAUSED', 'ai', nextPit))
+        } else {
+          ai = { ...ai, status: 'dead', hasDied: true }
+          events.push(event('PLAYER_DIED', 'ai', nextPit))
+        }
       } else {
         // Collision immunity: no death — chain instead
         const chainSeeds = board[nextPit]
@@ -141,8 +158,13 @@ export function racingTick(state: RacingState): RacingState {
 
       if (player.seeds === 0) {
         if (isOwnStore(nextPit, 'player')) {
-          player = { ...player, status: 'paused' }
-          events.push(event('PLAYER_PAUSED', 'player', nextPit))
+          if (hasOwnSeeds(board, 'player')) {
+            player = { ...player, status: 'paused' }
+            events.push(event('PLAYER_PAUSED', 'player', nextPit))
+          } else {
+            player = { ...player, status: 'dead', hasDied: true }
+            events.push(event('PLAYER_DIED', 'player', nextPit))
+          }
         } else if (preDepositCount === 0) {
           // Empty pit — player dies
           player = { ...player, status: 'dead', hasDied: true }
@@ -165,8 +187,13 @@ export function racingTick(state: RacingState): RacingState {
 
       if (ai.seeds === 0) {
         if (isOwnStore(nextPit, 'ai')) {
-          ai = { ...ai, status: 'paused' }
-          events.push(event('PLAYER_PAUSED', 'ai', nextPit))
+          if (hasOwnSeeds(board, 'ai')) {
+            ai = { ...ai, status: 'paused' }
+            events.push(event('PLAYER_PAUSED', 'ai', nextPit))
+          } else {
+            ai = { ...ai, status: 'dead', hasDied: true }
+            events.push(event('PLAYER_DIED', 'ai', nextPit))
+          }
         } else if (preDepositCount === 0) {
           // Empty pit — AI dies
           ai = { ...ai, status: 'dead', hasDied: true }

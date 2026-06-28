@@ -5,10 +5,10 @@ export function TrashTalkBubble() {
   if (!trashTalk) return null
 
   return (
-    <div className="relative max-w-xs bg-orange-100 border border-orange-300 rounded-2xl px-4 py-2 text-sm text-orange-800 shadow">
-      {/* ponytail: speech bubble tail via CSS triangle */}
-      <div className="absolute -bottom-2 left-6 w-0 h-0 border-l-8 border-r-8 border-t-8 border-l-transparent border-r-transparent border-t-orange-300" />
-      <span className="font-medium">AI: </span>{trashTalk}
+    <div className="relative bg-orange-900/80 border border-orange-700 rounded-2xl px-3 py-2 text-xs text-orange-200 max-w-[180px]">
+      {/* ponytail: speech bubble tail */}
+      <div className="absolute -left-2 top-3 w-0 h-0 border-t-4 border-b-4 border-r-8 border-t-transparent border-b-transparent border-r-orange-700" />
+      <span className="italic">&ldquo;{trashTalk}&rdquo;</span>
     </div>
   )
 }

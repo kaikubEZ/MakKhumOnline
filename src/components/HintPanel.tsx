@@ -7,16 +7,16 @@ export function HintPanel() {
   if (!isPlayerTurn) return null
 
   return (
-    <div className="flex flex-col items-center gap-2 w-full max-w-sm">
+    <div className="flex flex-col items-end gap-2">
       <button
         onClick={getHint}
         disabled={isThinking}
-        className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-semibold"
       >
-        {isThinking ? 'Thinking…' : '💡 Get Hint'}
+        {isThinking ? '...' : '💡 Hint'}
       </button>
       {hint && (
-        <p className="text-sm text-gray-600 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-center">
+        <p className="text-xs text-blue-200 bg-blue-900/50 border border-blue-700/50 rounded-lg px-3 py-2 max-w-[200px] text-right">
           {hint}
         </p>
       )}
