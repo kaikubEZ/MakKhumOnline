@@ -25,12 +25,16 @@ export function trashTalkPrompt(): string {
   )
 }
 
-const META_RE = /^(the user|count:|let'?s|constraint|we need|that'?s|add |step |here |ok |sure |i |write|reply)/i
+const META_RE = /^(the user|count:|let'?s|constraint|we need|that'?s|add |step |here |ok |sure |i |write|reply|must be|example:|class=)/i
 
-export function extractTrashTalk(text: string): string {
+export function extractTrashTalk(text: string): string | null {
   const lines = text.split('\n').map(l => l.trim().replace(/^["']|["']$/g, '')).filter(Boolean)
-  const clean = lines.filter(l => l.length <= 120 && !META_RE.test(l))
-  return clean.at(-1) ?? lines.at(-1) ?? text.trim()
+  const clean = lines.filter(l => {
+    if (l.length > 120 || META_RE.test(l)) return false
+    const words = l.split(/\s+/).filter(Boolean).length
+    return words >= 4 && words <= 25
+  })
+  return clean.at(-1) ?? null
 }
 
 export function parsePit(text: string, validPits: number[]): number | null {
