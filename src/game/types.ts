@@ -30,3 +30,6 @@ export type GameEventType =
   | 'TURN_CHANGED'
   | 'PHASE_CHANGED'
   | 'GAME_OVER'
+
+export type GameMode = 'local' | 'online'
+export type MyRole = 'player1' | 'player2'

@@ -5,7 +5,8 @@ import type { RacingState } from '../game/racing'
 import { executeMove, computeTurnFrames } from '../game/turnbased'
 import type { TurnState, AnimFrame } from '../game/turnbased'
 import { sweepSeeds, determineWinner } from '../game/endgame'
-import type { GameResult, GameEventType, MoveRecord } from '../game/types'
+import type { GameResult, GameEventType, MoveRecord, GameMode, MyRole } from '../game/types'
+import type { ClientMessage } from '../multiplayer/protocol'
 import { askAI } from '../ai/openrouter'
 import { movePrompt, hintPrompt, trashTalkPrompt, parsePit, extractTrashTalk } from '../ai/prompts'
 import { sow } from '../game/sow'
@@ -87,8 +88,18 @@ interface GameStore {
   pitHistory: { player: number[]; ai: number[] }
   difficulty: Difficulty
   moveHistory: MoveRecord[]
+  mode: GameMode
+  myRole: MyRole | null
+  roomCode: string | null
+  opponentDisconnected: boolean
+  socketSend: ((msg: ClientMessage) => void) | null
 
   loadApiKey(): void
+  startOnlineGame(role: MyRole): void
+  player2Move(pit: number): void
+  applyOpponentMove(pit: number): void
+  setSocketSend(fn: ((msg: ClientMessage) => void) | null): void
+  leaveOnlineGame(): void
   setTransitioning(v: boolean): void
   setApiKey(key: string | null): void
   setDifficulty(d: Difficulty): void
@@ -122,6 +133,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
   tbAnim: null,
   pitHistory: { player: [], ai: [] },
   moveHistory: [],
+  mode: 'local',
+  myRole: null,
+  roomCode: null,
+  opponentDisconnected: false,
+  socketSend: null,
   difficulty: (localStorage.getItem(DIFFICULTY_KEY) as Difficulty) ?? 'medium',
 
   loadApiKey() {
@@ -252,17 +268,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!turn || turn.currentTurn !== 'player' || isThinking || tbAnim) return
 
     set({ hint: null, trashTalk: null })
-    const { pitHistory, moveHistory } = get()
+    const { pitHistory, moveHistory, mode, socketSend } = get()
     const pending = executeMove(turn, pit)
     const frames = computeTurnFrames(turn, pit)
     const storeGain = pending.board[7] - turn.board[7]
     const rec: MoveRecord = { actor: 'player', pit, boardBefore: turn.board, validPits: getValidPits(turn.board, 'player'), storeGain }
+    if (mode === 'online') socketSend?.({ type: 'move', pit })
     set({ pitHistory: { ...pitHistory, player: [...pitHistory.player, pit] }, moveHistory: [...moveHistory, rec], tbAnim: { frames, frame: 0, pending } })
   },
 
   async aiMove() {
-    const { turn, apiKey, trashTalkLines, paused, tbAnim, difficulty } = get()
-    if (!turn || turn.currentTurn !== 'ai' || paused || tbAnim) return
+    const { turn, apiKey, trashTalkLines, paused, tbAnim, difficulty, mode } = get()
+    if (!turn || turn.currentTurn !== 'ai' || paused || tbAnim || mode === 'online') return
 
     const valid = getValidPits(turn.board, 'ai')
     if (valid.length === 0) return
@@ -334,6 +351,82 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   newGame() {
-    set({ phase: 'idle', racing: null, turn: null, result: null, isAITurn: false, hint: null, trashTalk: null, trashTalkLines: [], isThinking: false, paused: false, transitioning: false, eventPopup: null, tbAnim: null, pitHistory: { player: [], ai: [] }, moveHistory: [] })
+    set({ phase: 'idle', racing: null, turn: null, result: null, isAITurn: false, hint: null, trashTalk: null, trashTalkLines: [], isThinking: false, paused: false, transitioning: false, eventPopup: null, tbAnim: null, pitHistory: { player: [], ai: [] }, moveHistory: [], mode: 'local', myRole: null, roomCode: null, opponentDisconnected: false, socketSend: null })
+  },
+
+  setSocketSend(fn) {
+    set({ socketSend: fn })
+  },
+
+  startOnlineGame(role) {
+    const firstTurn: TurnState = {
+      board: createInitialBoard(),
+      currentTurn: 'player',
+      events: [],
+      phase: 'turnbased',
+    }
+    set({
+      phase: 'turnbased', turn: firstTurn, racing: null, result: null,
+      isAITurn: false, mode: 'online', myRole: role,
+      opponentDisconnected: false,
+      hint: null, trashTalk: null, trashTalkLines: [], paused: false,
+      transitioning: false, eventPopup: null, tbAnim: null,
+      pitHistory: { player: [], ai: [] }, moveHistory: [],
+    })
+  },
+
+  player2Move(pit) {
+    const { turn, tbAnim, mode, myRole, socketSend, pitHistory, moveHistory } = get()
+    if (mode !== 'online' || myRole !== 'player2') return
+    if (!turn || turn.currentTurn !== 'ai' || tbAnim) return
+    const valid = getValidPits(turn.board, 'ai')
+    if (!valid.includes(pit)) return
+    const pending = executeMove(turn, pit)
+    const frames = computeTurnFrames(turn, pit)
+    const storeGain = pending.board[15] - turn.board[15]
+    const rec: MoveRecord = { actor: 'ai', pit, boardBefore: turn.board, validPits: valid, storeGain }
+    socketSend?.({ type: 'move', pit })
+    set({
+      pitHistory: { ...pitHistory, ai: [...pitHistory.ai, pit] },
+      moveHistory: [...moveHistory, rec],
+      tbAnim: { frames, frame: 0, pending },
+    })
+  },
+
+  applyOpponentMove(pit) {
+    const { turn, myRole, tbAnim, pitHistory, moveHistory } = get()
+    if (!turn || tbAnim) return
+    if (myRole === 'player1') {
+      if (turn.currentTurn !== 'ai') return
+      const valid = getValidPits(turn.board, 'ai')
+      const pending = executeMove(turn, pit)
+      const frames = computeTurnFrames(turn, pit)
+      const storeGain = pending.board[15] - turn.board[15]
+      const rec: MoveRecord = { actor: 'ai', pit, boardBefore: turn.board, validPits: valid, storeGain }
+      set({
+        pitHistory: { ...pitHistory, ai: [...pitHistory.ai, pit] },
+        moveHistory: [...moveHistory, rec],
+        tbAnim: { frames, frame: 0, pending },
+      })
+    } else {
+      // myRole === 'player2': opponent is player1, their move is on 'player' side
+      if (turn.currentTurn !== 'player') return
+      const valid = getValidPits(turn.board, 'player')
+      const pending = executeMove(turn, pit)
+      const frames = computeTurnFrames(turn, pit)
+      const storeGain = pending.board[7] - turn.board[7]
+      const rec: MoveRecord = { actor: 'player', pit, boardBefore: turn.board, validPits: valid, storeGain }
+      set({
+        hint: null, trashTalk: null,
+        pitHistory: { ...pitHistory, player: [...pitHistory.player, pit] },
+        moveHistory: [...moveHistory, rec],
+        tbAnim: { frames, frame: 0, pending },
+      })
+    }
+  },
+
+  leaveOnlineGame() {
+    set({ mode: 'local', myRole: null, roomCode: null, opponentDisconnected: false, socketSend: null })
+    get().newGame()
   },
 }))
