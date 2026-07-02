@@ -399,6 +399,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (myRole === 'player1') {
       if (turn.currentTurn !== 'ai') return
       const valid = getValidPits(turn.board, 'ai')
+      if (!valid.includes(pit)) return
       const pending = executeMove(turn, pit)
       const frames = computeTurnFrames(turn, pit)
       const storeGain = pending.board[15] - turn.board[15]
@@ -412,6 +413,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       // myRole === 'player2': opponent is player1, their move is on 'player' side
       if (turn.currentTurn !== 'player') return
       const valid = getValidPits(turn.board, 'player')
+      if (!valid.includes(pit)) return
       const pending = executeMove(turn, pit)
       const frames = computeTurnFrames(turn, pit)
       const storeGain = pending.board[7] - turn.board[7]

@@ -7,9 +7,18 @@ interface Room {
   code: string
   players: WebSocket[]
   roles: Map<WebSocket, 'player1' | 'player2'>
+  createdAt: number
 }
 
 const rooms = new Map<string, Room>()
+const ROOM_TTL_MS = 10 * 60 * 1000
+
+function sweepEmptyRooms() {
+  const now = Date.now()
+  for (const [code, room] of rooms) {
+    if (room.players.length === 0 && now - room.createdAt > ROOM_TTL_MS) rooms.delete(code)
+  }
+}
 
 function generateCode(): string {
   let code: string
@@ -32,7 +41,7 @@ function handleHTTP(req: IncomingMessage, res: ServerResponse) {
 
   if (req.method === 'POST' && req.url === '/rooms') {
     const code = generateCode()
-    rooms.set(code, { code, players: [], roles: new Map() })
+    rooms.set(code, { code, players: [], roles: new Map(), createdAt: Date.now() })
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ code }))
     return
@@ -44,6 +53,7 @@ function handleHTTP(req: IncomingMessage, res: ServerResponse) {
 export function startServer(port = 3001): Promise<{ port: number; close(): void }> {
   const httpServer = createServer(handleHTTP)
   const wss = new WebSocketServer({ noServer: true })
+  const sweeper = setInterval(sweepEmptyRooms, 60_000)
 
   httpServer.on('upgrade', (req, socket, head) => {
     const match = req.url?.match(/^\/rooms\/(\d{6})$/)
@@ -74,7 +84,12 @@ export function startServer(port = 3001): Promise<{ port: number; close(): void 
     }
 
     ws.on('message', (data) => {
-      const msg = JSON.parse(data.toString()) as ClientMessage
+      let msg: ClientMessage
+      try {
+        msg = JSON.parse(data.toString()) as ClientMessage
+      } catch {
+        return
+      }
       if (msg.type === 'move') {
         const opponent = room.players.find(p => p !== ws)
         if (opponent) send(opponent, { type: 'opponent_move', pit: msg.pit })
@@ -96,7 +111,7 @@ export function startServer(port = 3001): Promise<{ port: number; close(): void 
       const addr = httpServer.address() as AddressInfo
       resolve({
         port: addr.port,
-        close: () => { wss.close(); httpServer.close() },
+        close: () => { clearInterval(sweeper); wss.close(); httpServer.close() },
       })
     })
   })
