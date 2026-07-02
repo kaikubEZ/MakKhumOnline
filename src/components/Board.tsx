@@ -64,9 +64,13 @@ export function Board() {
   const board = animFrame?.board ?? turn?.board ?? racing?.board ?? Array(16).fill(0)
 
   const clickable = new Set<number>()
-  if (phase === 'racing' && racing && !flipped) {
-    const s = racing.player.status
-    if (s === 'selecting' || s === 'paused') getValidPits(board, 'player').forEach(p => clickable.add(p))
+  if (phase === 'racing' && racing) {
+    // Guest (flipped) controls the 'ai' side; host controls the 'player' side.
+    const myHand = flipped ? racing.ai : racing.player
+    const side = flipped ? 'ai' : 'player'
+    if (myHand.status === 'selecting' || myHand.status === 'paused') {
+      getValidPits(board, side).forEach(p => clickable.add(p))
+    }
   } else if (phase === 'turnbased' && turn && !tbAnim) {
     if (!flipped && !isAITurn) getValidPits(board, 'player').forEach(p => clickable.add(p))
     if (flipped && isAITurn) getValidPits(board, 'ai').forEach(p => clickable.add(p))
@@ -159,16 +163,22 @@ export function Board() {
       </div>
 
       {/* Racing status strip */}
-      {phase === 'racing' && racing && (
-        <div className="mt-2 flex justify-between text-xs text-amber-400 px-1">
-          <span>
-            AI: {racing.ai.status === 'dead' ? '💀 died' : racing.ai.status === 'paused' ? '⏸ paused' : `${racing.ai.seeds} in hand`}
-          </span>
-          <span>
-            You: {racing.player.status === 'dead' ? '💀 died' : racing.player.status === 'paused' ? '⏸ paused' : racing.player.status === 'selecting' ? 'selecting…' : `${racing.player.seeds} in hand`}
-          </span>
-        </div>
-      )}
+      {phase === 'racing' && racing && (() => {
+        const me = flipped ? racing.ai : racing.player
+        const opp = flipped ? racing.player : racing.ai
+        const oppLabel = mode === 'online' ? 'OPP' : 'AI'
+        const handText = (h: typeof me, selectingLabel = false) =>
+          h.status === 'dead' ? '💀 died'
+            : h.status === 'paused' ? '⏸ paused'
+              : selectingLabel && h.status === 'selecting' ? 'selecting…'
+                : `${h.seeds} in hand`
+        return (
+          <div className="mt-2 flex justify-between text-xs text-amber-400 px-1">
+            <span>{oppLabel}: {handText(opp)}</span>
+            <span>You: {handText(me, true)}</span>
+          </div>
+        )
+      })()}
     </div>
   )
 }
