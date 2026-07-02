@@ -55,6 +55,11 @@ function eventToLabel(type: GameEventType): string | null {
   return map[type] ?? null
 }
 
+function firstDeadActor(events: RacingState['events']): 'player' | 'ai' {
+  const died = events.find(e => e.type === 'PLAYER_DIED')
+  return died?.actor === 'ai' ? 'ai' : 'player'
+}
+
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]
 }
@@ -244,10 +249,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     if (state.phase === 'complete') {
-      const turn: TurnState = { board: state.board, currentTurn: 'player', events: [], phase: 'turnbased' }
+      const turn: TurnState = { board: state.board, currentTurn: firstDeadActor(state.events), events: [], phase: 'turnbased' }
       set({ racing: state, transitioning: true })
       if (isOnline) socketSend?.({ type: 'racing_state', state })
-      setTimeout(() => { if (get().transitioning) set({ phase: 'turnbased', turn, transitioning: false }) }, 1800)
+      setTimeout(() => { if (get().transitioning) set({ phase: 'turnbased', turn, transitioning: false, isAITurn: turn.currentTurn === 'ai' }) }, 1800)
     } else {
       set({ racing: state })
       if (isOnline) socketSend?.({ type: 'racing_state', state })
@@ -421,9 +426,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     if (state.phase === 'complete' && !transitioning) {
-      const turn: TurnState = { board: state.board, currentTurn: 'player', events: [], phase: 'turnbased' }
+      const turn: TurnState = { board: state.board, currentTurn: firstDeadActor(state.events), events: [], phase: 'turnbased' }
       set({ racing: state, transitioning: true })
-      setTimeout(() => { if (get().transitioning) set({ phase: 'turnbased', turn, transitioning: false }) }, 1800)
+      setTimeout(() => { if (get().transitioning) set({ phase: 'turnbased', turn, transitioning: false, isAITurn: turn.currentTurn === 'ai' }) }, 1800)
     } else {
       set({ racing: state })
     }
