@@ -1,6 +1,6 @@
 import type { ClientMessage, ServerMessage } from './protocol'
 
-export const SERVER_HTTP = (import.meta.env.VITE_SERVER_URL as string) || 'http://localhost:3001'
+export const SERVER_HTTP = ((import.meta.env.VITE_SERVER_URL as string) || 'http://localhost:3001').replace(/\/+$/, '')
 const SERVER = SERVER_HTTP.replace(/^http/, 'ws')
 
 let ws: WebSocket | null = null
