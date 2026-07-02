@@ -1,6 +1,7 @@
 import type { ClientMessage, ServerMessage } from './protocol'
 
-const SERVER = 'ws://localhost:3001'
+export const SERVER_HTTP = ((import.meta.env.VITE_SERVER_URL as string) || 'http://localhost:3001').replace(/\/+$/, '')
+const SERVER = SERVER_HTTP.replace(/^http/, 'ws')
 
 let ws: WebSocket | null = null
 let handlers: Array<(msg: ServerMessage) => void> = []

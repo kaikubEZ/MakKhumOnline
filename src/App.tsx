@@ -8,7 +8,7 @@ import { RulesModal } from './components/RulesModal'
 import { ReviewModal } from './components/ReviewModal'
 import { LobbyScreen } from './components/LobbyScreen'
 import { WaitingRoom } from './components/WaitingRoom'
-import { connect, onMessage, disconnect, send } from './multiplayer/socket'
+import { connect, onMessage, disconnect, send, SERVER_HTTP } from './multiplayer/socket'
 
 function PhaseBanner({ phase }: { phase: string }) {
   if (phase === 'racing') return (
@@ -99,7 +99,7 @@ export default function App() {
       if (msg.type === 'game_start') { unsub(); startOnlineGame(msg.yourRole); setScreen('game') }
     })
     try {
-      const res = await fetch('http://localhost:3001/rooms', { method: 'POST' })
+      const res = await fetch(`${SERVER_HTTP}/rooms`, { method: 'POST' })
       const { code } = await res.json() as { code: string }
       await connect(code)
       setWaitingCode(code)

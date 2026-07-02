@@ -11,6 +11,14 @@ interface Room {
 }
 
 const rooms = new Map<string, Room>()
+const ROOM_TTL_MS = 10 * 60 * 1000
+
+function sweepEmptyRooms() {
+  const now = Date.now()
+  for (const [code, room] of rooms) {
+    if (room.players.length === 0 && now - room.createdAt > ROOM_TTL_MS) rooms.delete(code)
+  }
+}
 
 // Abandoned rooms (created but never joined) are swept after this long.
 const ROOM_TTL_MS = 10 * 60 * 1000
@@ -60,6 +68,7 @@ function handleHTTP(req: IncomingMessage, res: ServerResponse) {
 export function startServer(port = 3001): Promise<{ port: number; close(): void }> {
   const httpServer = createServer(handleHTTP)
   const wss = new WebSocketServer({ noServer: true })
+  const sweeper = setInterval(sweepEmptyRooms, 60_000)
 
   httpServer.on('upgrade', (req, socket, head) => {
     const match = req.url?.match(/^\/rooms\/(\d{6})$/)
